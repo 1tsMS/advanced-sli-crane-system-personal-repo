@@ -96,7 +96,7 @@ Limitations of the current situation:
 
 Add block diagram or system architecture image here.
 
-````markdown
+````
 ![System Architecture](images/system_architecture.png)
 ````
 
