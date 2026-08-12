@@ -164,13 +164,13 @@ Explain the step-by-step approach.
 | Week / Month | Task Planned          | Status                            |
 | ------------ | --------------------- | --------------------------------- |
 | Week 1       | Problem finalization  | Completed
-| Week 2       | Literature survey     |                                   |
-| Week 3       | Requirement analysis  |                                   |
-| Week 4       | System design         |                                   |
-| Week 5       | Prototype development |                                   |
-| Week 6       | Testing               |                                   |
-| Week 7       | Documentation         |                                   |
-| Week 8       | Paper writing         |                                   |
+| Week 2       | Literature survey     | Completed                                  |
+| Week 3       | Requirement analysis  | Completed                                  |
+| Week 4       | System design         | Completed                                  |
+| Week 5       | Prototype development | In Progress                                  |
+| Week 6       | Testing               | Pending                                  |
+| Week 7       | Documentation         | Pending                                  |
+| Week 8       | Paper writing         | Pending                                  |
 
 ---
 
@@ -180,15 +180,17 @@ Students must update this section every week.
 
 | Week   | Date | Work Completed | Work Planned for Next Week | Issues / Challenges | GitHub Commit Link |
 | ------ | ---- | -------------- | -------------------------- | ------------------- | ------------------ |
-| Week 1 | 12/08/2026     | Project finalized, 1st Prototype Cad and printing Done               |    Assembling and making PCB for the Prototype                        | Tolerances and Torque issues                    |                    |
-| Week 2 |      |                |                            |                     |                    |
-| Week 3 |      |                |                            |                     |                    |
-| Week 4 |      |                |                            |                     |                    |
-| Week 5 |      |                |                            |                     |                    |
-| Week 6 |      |                |                            |                     |                    |
-| Week 7 |      |                |                            |                     |                    |
-| Week 8 |      |                |                            |                     |                    |
-
+| Week 1 | Feb 2026     | Finalized problem statement               |    Begin literature survey	                        |                     |                    |
+| Week 2 | Mar 2026     | Literature survey               | Incorporate review feedback, finalize scope                           |                     |                    |
+| Week 3 | Apr 2026     | Incorporated review feedback/modifications; finalized scope for submission               | Requirement analysis & component selection                           |                     |                    |
+| Week 4 | Jul 2026     | Requirement analysis & component selection               |                            |                     |                    |
+| Week 5 | Jul 2026     | Researched mechanical systems for prototype design               |                            |                     |                    |
+| Week 6 | Jul 2026     | Mechanical design & 3D CAD modelling               |                            |                     |                    |
+| Week 7 | Aug 2026     | 3D printing of mechanical parts and assembly               |                            |                     |                    |
+| Week 8 | Aug 2026     | Prototype PCB and electronic configuration               |                            |                     |                    |
+| Week 8 | Aug 2026     |              |                            |                     |                    |
+| Week 8 | Aug 2026     |               |                            |                     |                    |
+| Week 8 | Aug 2026     |                |                            |                     |                    |
 ---
 
 ## Design Files
