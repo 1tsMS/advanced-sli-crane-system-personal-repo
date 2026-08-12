@@ -19,7 +19,7 @@
 
 ## Guide Details
 
-**Project Guide:**  
+**Project Guide:** Gopalkrishnan Narayanan 
 **Department:** Automation and Robotics  
 **Institute:** VESIT, Mumbai  
 
