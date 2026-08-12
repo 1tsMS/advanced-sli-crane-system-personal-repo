@@ -88,7 +88,7 @@ Limitations of the current situation:
 
 **Expected benefits:** Real-time load awareness, improved operator safety, a low-cost architecture suited to smaller cranes, and a foundation for future predictive safety features.
 
-**Video** https://www.youtube.com/watch?v=6nNT_Is4-v4
+**Video** https://www.youtube.com/watch?v=oNVU6BZZ5JM
 
 ---
 
@@ -407,8 +407,10 @@ Add references in IEEE format.
 Example:
 
 ````text
-[1] A. Author, B. Author, "Title of the Paper," Journal/Conference Name, vol. X, no. Y, pp. xx-yy, Year.
-[2] Datasheet / Website / Book reference.
+[1] Junqi Li, Qing Dong, "A Development Method for Load Adaptive Matching Digital Twin System of Bridge Cranes," Journal/Conference Name, vol. X, no. Y, pp. xx-yy, Year.
+[2] Dae-Ho Jang, Gi-Tae Roh, "Simulation-Based Optimization of Crane Lifting Position and Capacity Using a Construction Digital Twin for Prefabricated Bridge Deck Assembly"
+[3] Yihai Fang, Yong K. Cho, "A Framework for Real-time Pro-active Safety Assistance for Mobile Crane Lifting Operations"
+[4] Datasheet / Website / Book reference.
 ````
 
 ---
