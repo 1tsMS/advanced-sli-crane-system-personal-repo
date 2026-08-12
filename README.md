@@ -11,8 +11,8 @@
 | Sr. No. | Name of Student | Roll No. | Branch | Email ID |
 |---|---|---|---|---|
 | 1 | Mohammed Salah Altaf Chogle | 41 | Automation & Robotics | 2023.mohammed.chogle@ves.ac.in |
-| 2 | Ali Kalsekar |  | Automation & Robotics | d2024.ali.kalsekar@ves.ac.in |
-| 3 | Aayush Kadam |  | Automation & Robotics | 2023.aayush.kadam@ves.ac.in |
+| 2 | Ali Kalsekar | 53 | Automation & Robotics | d2024.ali.kalsekar@ves.ac.in |
+| 3 | Aayush Kadam | 51 | Automation & Robotics | 2023.aayush.kadam@ves.ac.in |
 | 4 |  |  |  |  |
 
 ---
@@ -163,7 +163,7 @@ Explain the step-by-step approach.
 
 | Week / Month | Task Planned          | Status                            |
 | ------------ | --------------------- | --------------------------------- |
-| Week 1       | Problem finalization  | Pending / In Progress / Completed |
+| Week 1       | Problem finalization  | Completed
 | Week 2       | Literature survey     |                                   |
 | Week 3       | Requirement analysis  |                                   |
 | Week 4       | System design         |                                   |
@@ -180,7 +180,7 @@ Students must update this section every week.
 
 | Week   | Date | Work Completed | Work Planned for Next Week | Issues / Challenges | GitHub Commit Link |
 | ------ | ---- | -------------- | -------------------------- | ------------------- | ------------------ |
-| Week 1 |      |                |                            |                     |                    |
+| Week 1 | 12/08/2026     | Project finalized, 1st Prototype Cad and printing Done               |    Assembling and making PCB for the Prototype                        | Tolerances and Torque issues                    |                    |
 | Week 2 |      |                |                            |                     |                    |
 | Week 3 |      |                |                            |                     |                    |
 | Week 4 |      |                |                            |                     |                    |
