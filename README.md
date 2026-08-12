@@ -1,9 +1,8 @@
-````markdown
 # BE Capstone Project
 
 ## Project Title
 
-**Write the full title of your project here**
+**Advanced SLI**
 
 ---
 
@@ -11,9 +10,9 @@
 
 | Sr. No. | Name of Student | Roll No. | Branch | Email ID |
 |---|---|---|---|---|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| 3 |  |  |  |  |
+| 1 | Mohammed Salah Altaf Chogle | 41 | Automation & Robotics | 2023.mohammed.chogle@ves.ac.in |
+| 2 | Ali Kalsekar |  | Automation & Robotics | d2024.ali.kalsekar@ves.ac.in |
+| 3 | Aayush Kadam |  | Automation & Robotics | 2023.aayush.kadam@ves.ac.in |
 | 4 |  |  |  |  |
 
 ---
@@ -28,77 +27,66 @@
 
 ## Problem Statement
 
-Write a clear problem statement here.
-
-Example:
-
-> The aim of this project is to design and develop a system that solves the problem of __________ by using __________ technology.
+> The aim of this project is to design and develop an affordable, retrofittable Safe Load Indicator (SLI) system for low-capacity truck-mounted pick-and-carry mobile cranes by using multi-sensor feedback (load, angle, extension, inertial data) and embedded control technology, addressing the lack of accurate, low-cost load-monitoring and safety systems available for this crane category.
 
 ---
 
 ## Abstract
 
-Write a short summary of the project in 150–250 words.
+Low-capacity truck-mounted pick-and-carry hydraulic cranes, commonly used at local worksites, largely lack accurate and affordable Safe Load Indicator (SLI) systems, unlike larger construction-grade cranes which have factory-fitted rated capacity indicators. Operators of these smaller cranes often rely on experience alone, increasing the risk of overloading and tipping incidents. This project proposes the design and development of an Advanced Intelligent Safe Load Indicator (AI-SLI): a sensor-driven system that monitors boom angle, extension, hydraulic pressure (as a proxy for load), and inertial motion data to provide real-time load percentage, safety alarms, and operational analytics.
 
-The abstract should include:
+The project is being developed in two parallel tracks: a custom-built scale-model truck-mounted crane platform (with independently actuated swing, telescopic extension, boom-lift, and cable-reeling axes, each with encoder and sensor feedback) used for mechanism validation and algorithm development, and eventual sensor integration on a real crane for field validation. The scale model itself is a standalone multi-axis robotic-arm project, combining mechanical design, embedded systems, and sensor fusion.
 
-- Background of the problem
-- Proposed solution
-- Technology used
-- Expected outcome
-- Application area
+Software development follows a phased approach: starting with basic rated-capacity load-chart safety limits, followed by PID-based anti-sway control, tipping prediction using load and outrigger data, and eventually AI-based analytics such as inertial-data-driven operator scoring. The expected outcome is a working scale-model demonstrator validating the sensing and control approach, laying the foundation for deployment on a real crane.
 
 ---
 
 ## Objectives
 
-1. To study the existing problem and available solutions.
-2. To design a suitable hardware/software/system architecture.
-3. To implement the proposed solution.
-4. To test and validate the system.
-5. To document and publish the project work.
+1. To study existing Safe Load Indicator systems and identify gaps in affordability and availability for low-capacity truck-mounted cranes.
+2. To design and build a multi-axis scale-model crane (swing, telescopic extension, boom lift, cable reeling) as a development and validation platform.
+3. To design a sensor and control architecture capable of measuring load, angle, extension, and inertial motion.
+4. To implement basic rated-capacity load-chart safety limit functionality.
+5. To progressively implement advanced features: anti-sway control (PID) and tipping prediction.
+6. To validate the developed system and, in later stages, apply learnings toward real crane sensor integration.
 
 ---
 
 ## Scope of the Project
 
-Mention what the project will cover.
-
-Example:
-
-- Design and development of prototype
-- Hardware implementation
-- Software/mobile/web interface
-- Data collection and testing
-- Performance analysis
+- Design and fabrication of a multi-axis scale-model truck-mounted crane (mechanical + electrical)
+- Sensor integration: load cell, IMU, magnetic encoders, limit switches
+- Embedded firmware for motor control and sensor data acquisition
+- Desktop dashboard application for live monitoring, data logging, and analytics
+- Phased safety software: load-chart limits → anti-sway control → tipping prediction
+- Data collection and testing on the scale model
+- Preliminary exploration of real crane sensor integration (later phase, scope to be expanded as work progresses)
 
 ---
 
 ## Existing System
 
-Describe the currently available system or method.
+Large construction-grade cranes typically come with factory-fitted Rated Capacity Indicator (RCI) / SLI systems. However, small, local, truck-mounted pick-and-carry hydraulic cranes commonly used at smaller worksites usually operate without such systems.
 
-Mention its limitations:
+Limitations of the current situation:
 
-- High cost
-- Low accuracy
-- Manual process
-- Lack of automation
-- Poor scalability
-- Limited accessibility
+- High cost of commercial SLI systems relative to the value of low-capacity cranes
+- Lack of retrofittable options for older or lower-capacity crane models
+- Operators rely on experience/judgement rather than real-time load feedback
+- No predictive safety features (e.g., sway or tipping warnings) on this crane category
+- Limited accessibility of safety technology for smaller crane operators
 
 ---
 
 ## Proposed System
 
-Describe your proposed solution.
+**Main idea:** An affordable, sensor-driven Safe Load Indicator system, developed and validated on a custom-built scale-model crane before targeting real crane deployment.
 
-Include:
+**How it works:** Boom angle, extension length, and load/pressure are continuously measured and combined (via a load-chart lookup) to compute real-time load percentage and trigger safety alarms. Inertial (IMU) data is used to detect motion events, assist with anti-sway damping, and support operator analytics. Data is transmitted to a desktop dashboard for live monitoring and logging.
 
-- Main idea
-- How it works
-- Major components
-- Expected benefits
+**Major components:** Multi-axis scale-model crane (swing, telescopic extension, boom lift, cable reeling), magnetic encoders, IMU, load cell, microcontroller-based control system, and a PyQt6 desktop dashboard.
+
+**Expected benefits:** Real-time load awareness, improved operator safety, a low-cost architecture suited to smaller cranes, and a foundation for future predictive safety features.
 
 ---
 
@@ -106,7 +94,7 @@ Include:
 
 Add block diagram or system architecture image here.
 
-```markdown
+````markdown
 ![System Architecture](images/system_architecture.png)
 ````
 
@@ -118,10 +106,16 @@ Briefly explain the architecture.
 
 | Sr. No. | Component | Specification | Quantity | Purpose |
 | ------- | --------- | ------------- | -------- | ------- |
-| 1       |           |               |          |         |
-| 2       |           |               |          |         |
-| 3       |           |               |          |         |
-| 4       |           |               |          |         |
+| 1       | NEMA17 Stepper Motor | 17HS8401 | 3 | Swing, boom lift, telescopic extension actuation |
+| 2       | N20 DC Gear Motor | 150 RPM, encoder-integrated | 1 | Cable reeling / winch drive |
+| 3       | Arduino Mega 2560 | — | 1 | Main controller |
+| 4       | RAMPS 1.4 | — | 1 | Motor driver / sensor breakout shield |
+| 5       | A4988 Stepper Driver | — | 4 | Stepper motor driving |
+| 6       | AS5600 Magnetic Encoder | — | 2 | Swing and boom lift angle feedback |
+| 7       | MPU6050 IMU | 6-axis | 1 | Inertial motion sensing |
+| 8       | HX711 + Load Cell | 5 kg | 1 | Load sensing |
+| 9       | Limit Switches | Mechanical | As required | Axis end-stop safety |
+| 10      | 12V Power Supply | 12V, 10A | 1 | System power |
 
 ---
 
@@ -129,24 +123,22 @@ Briefly explain the architecture.
 
 | Sr. No. | Software / Tool | Version | Purpose |
 | ------- | --------------- | ------- | ------- |
-| 1       |                 |         |         |
-| 2       |                 |         |         |
-| 3       |                 |         |         |
+| 1       | Arduino IDE     | —       | Firmware development |
+| 2       | Fusion 360      | —       | Mechanical CAD design |
+| 3       | Python          | —       | Data processing, dashboard, model training |
+| 4       | PyQt6           | —       | Desktop dashboard application |
 
 ---
 
 ## Technologies Used
 
-Mention technologies used in the project.
-
-Example:
-
-* Embedded C / Python / JavaScript
-* Arduino / STM32 / ESP32 / Raspberry Pi
-* ROS / MATLAB / Simulink
-* Machine Learning / Computer Vision
-* IoT / Cloud / Mobile App
-* PCB Design / CAD Design
+* Embedded C++ (Arduino)
+* Python (data processing, dashboard, model training)
+* Arduino Mega, RAMPS 1.4, A4988 stepper drivers
+* Sensor fusion (Madgwick / Kalman filtering for IMU data)
+* Machine Learning (LSTM — planned for future tipping prediction phase)
+* PyQt6 (desktop dashboard)
+* CAD Design (Fusion 360)
 
 ---
 
@@ -215,9 +207,9 @@ Upload and link all design files here.
 
 Add circuit diagram image here.
 
-```markdown
+````markdown
 ![Circuit Diagram](images/circuit_diagram.png)
-```
+````
 
 ---
 
@@ -225,9 +217,9 @@ Add circuit diagram image here.
 
 Add flowchart image here.
 
-```markdown
+````markdown
 ![Flowchart](images/flowchart.png)
-```
+````
 
 ### Algorithm
 
@@ -257,7 +249,7 @@ Write details about code structure, libraries used, algorithms, communication pr
 
 ## Code Structure
 
-```text
+````text
 BE-Capstone-Project/
 │
 ├── README.md
@@ -283,7 +275,7 @@ BE-Capstone-Project/
 │
 └── references/
     └── papers/
-```
+````
 
 ---
 
@@ -291,29 +283,29 @@ BE-Capstone-Project/
 
 ### Step 1: Clone the Repository
 
-```bash
+````bash
 git clone https://github.com/username/project-name.git
-```
+````
 
 ### Step 2: Install Dependencies
 
-```bash
+````bash
 pip install -r requirements.txt
-```
+````
 
 or mention specific software/library installation steps.
 
 ### Step 3: Upload / Run the Code
 
-```bash
+````bash
 python main.py
-```
+````
 
 or
 
-```bash
+````bash
 arduino-cli upload -p COMx --fqbn board_name
-```
+````
 
 ### Step 4: Observe the Output
 
@@ -335,15 +327,15 @@ Mention the expected output of the project.
 
 Add images or videos of the working prototype.
 
-```markdown
+````markdown
 ![Prototype](images/prototype_photo.jpg)
-```
+````
 
 Video Link:
 
-```markdown
+````markdown
 [Project Demo Video](https://drive.google.com/your-video-link)
-```
+````
 
 ---
 
@@ -405,10 +397,10 @@ Add references in IEEE format.
 
 Example:
 
-```text
+````text
 [1] A. Author, B. Author, "Title of the Paper," Journal/Conference Name, vol. X, no. Y, pp. xx-yy, Year.
 [2] Datasheet / Website / Book reference.
-```
+````
 
 ---
 
@@ -428,13 +420,13 @@ Minimum expected updates:
 
 Example commit messages:
 
-```text
+````text
 Added problem statement and objectives
 Updated system architecture diagram
 Added sensor interfacing code
 Updated weekly progress for Week 3
 Added testing results and prototype images
-```
+````
 
 ---
 
@@ -450,9 +442,9 @@ This project is for academic use only.
 
 Optional:
 
-```text
+````text
 MIT License / Creative Commons / Institute Use Only
-```
+````
 
-```
-```
+````
+````
