@@ -88,6 +88,8 @@ Limitations of the current situation:
 
 **Expected benefits:** Real-time load awareness, improved operator safety, a low-cost architecture suited to smaller cranes, and a foundation for future predictive safety features.
 
+**Video** https://www.youtube.com/watch?v=6nNT_Is4-v4
+
 ---
 
 ## System Architecture
