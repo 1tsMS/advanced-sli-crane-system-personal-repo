@@ -188,9 +188,14 @@ Students must update this section every week.
 | Week 6 | Jul 2026     | Mechanical design & 3D CAD modelling               |                            |                     |                    |
 | Week 7 | Aug 2026     | 3D printing of mechanical parts and assembly               |                            |                     |                    |
 | Week 8 | Aug 2026     | Prototype PCB and electronic configuration               |                            |                     |                    |
-| Week 8 | Aug 2026     |              |                            |                     |                    |
-| Week 8 | Aug 2026     |               |                            |                     |                    |
-| Week 8 | Aug 2026     |                |                            |                     |                    |
+| Week 8 | Aug 2026     |              | Prototype testing                           |                     |                    |
+| Week 9 | Sep 2026     |               | Sensor integration                           |                     |                    |
+| Week 10 | Sep 2026     |                | Firmware development                           |                     |                    |
+| Week 11 | Sep 2026     |                | Calibration & implement basic load-chart safety limits                           |                     |                    |
+| Week 12 | Sep 2026     |                | Build PyQt6 dashboard                           |                     |                    |
+| Week 13 | Oct 2026     |                | 	Implement PID-based anti-sway control; begin tipping-prediction groundwork                           |                     |                    |
+| Week 14 | Oct 2026     |                | 	Full system testing, bug fixes, results compilation, documentation                           |                     |                    |
+| Week 15 | Oct 2026     |                | Research paper writing                          |                     |                    |
 ---
 
 ## Design Files
