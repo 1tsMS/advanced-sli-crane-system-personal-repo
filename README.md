@@ -94,13 +94,13 @@ Limitations of the current situation:
 
 ## System Architecture
 
-Add block diagram or system architecture image here.
 
-````
+
+
 ![System Architecture](images/system_architecture.png)
-````
 
-Briefly explain the architecture.
+
+
 
 ---
 
