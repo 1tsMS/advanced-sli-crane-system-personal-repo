@@ -75,8 +75,5 @@ N20 winch (DRV8833) = driven directly by ESP32, not RAMPS
 
 ---
 
-## Not yet finalized / open items
-
-- Limit switches — deferred, RAMPS endstop headers left unpopulated for now
-- DRV8833 STBY handling — confirm always-enabled (tie high) vs GPIO-controlled standby
+controlled standby
 - FSR voltage divider resistor values — to be set once sensors arrive and calibration begins
