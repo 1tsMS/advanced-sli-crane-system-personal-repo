@@ -74,6 +74,3 @@ N20 winch (DRV8833) = driven directly by ESP32, not RAMPS
 | Power In | RAMPS power terminal | 12V PSU |
 
 ---
-
-controlled standby
-- FSR voltage divider resistor values — to be set once sensors arrive and calibration begins
