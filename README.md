@@ -188,7 +188,7 @@ Students must update this section every week.
 | Week 6 | Jul 2026     | Mechanical design & 3D CAD modelling               |                            |                     |                    |
 | Week 7 | Aug 2026     | 3D printing of mechanical parts and assembly               |                            |                     |                    |
 | Week 8 | Aug 2026     | Prototype PCB and electronic configuration               |                            |                     |                    |
-| Week 8 | Aug 2026     |              | Prototype testing                           |                     |                    |
+| Week 8 | Aug 2026     | Prototype testing done             | issues in model noted and updated laser cut files                           |                     |                    |
 | Week 9 | Sep 2026     |               | Sensor integration                           |                     |                    |
 | Week 10 | Sep 2026     |                | Firmware development                           |                     |                    |
 | Week 11 | Sep 2026     |                | Calibration & implement basic load-chart safety limits                           |                     |                    |
