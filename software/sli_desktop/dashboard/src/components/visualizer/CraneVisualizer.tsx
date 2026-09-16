@@ -6,16 +6,16 @@ interface CraneVisualizerProps {
 }
 
 /**
- * 2D canvas crane visualizer.
+ * Clean side-view crane boom visualizer.
  *
  * Renders:
- *   - Truck/base body
- *   - Outrigger legs (4x) with FSR-based load coloring
- *   - Boom arm (rotates by boomAngle)
- *   - Telescope extension indicator on the boom
- *   - Rope/hook (length visualized)
- *   - Swing indicator arc (swingAngle)
- *   - IMU tilt indicator
+ *   - Slotted turret base (simple rect)
+ *   - Main boom arm (rotates by boomAngle, expands with extensionMM)
+ *   - Telescope section inner boom (lighter overlay)
+ *   - Rope + hook hanging from boom tip
+ *   - Angle arc + label
+ *   - Swing indicator (arc at base)
+ *   - Safe zone envelope (arc at max radius) — green/amber/red
  */
 export function CraneVisualizer({ frame }: CraneVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -29,198 +29,229 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     const W = canvas.width;
     const H = canvas.height;
 
-    // Defaults when no data
-    const boomAngle  = frame?.boomAngle  ?? 45;
-    const swingAngle = frame?.swingAngle ?? 0;
-    const extMM      = frame?.extensionMM ?? 0;
-    const ropeLen    = frame?.ropeLength  ?? 0;
-    const fsr        = frame?.fsr ?? [0, 0, 0, 0];
-    const alarmLvl   = frame?.alarmLevel  ?? 0;
+    const boomAngle   = frame?.boomAngle   ?? 50;   // degrees from horizontal
+    const extMM       = frame?.extensionMM ?? 0;
+    const ropeLength  = frame?.ropeLength  ?? 500;
+    const swingAngle  = frame?.swingAngle  ?? 0;
+    const alarmLevel  = frame?.alarmLevel  ?? 0;
 
     ctx.clearRect(0, 0, W, H);
 
-    // ---- Background grid ----
-    ctx.strokeStyle = "rgba(255,255,255,0.04)";
+    // ---- Background ----
+    ctx.fillStyle = "#080A0E";
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle grid
+    ctx.strokeStyle = "rgba(255,255,255,0.025)";
     ctx.lineWidth = 0.5;
-    for (let x = 0; x < W; x += 20) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-    }
-    for (let y = 0; y < H; y += 20) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-    }
+    for (let x = 0; x <= W; x += 24) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+    for (let y = 0; y <= H; y += 24) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
 
-    const cx = W * 0.5;
-    const baseY = H * 0.72;
+    // ---- Pivot point ----
+    const pivX = W * 0.28;
+    const pivY = H * 0.75;
 
-    // ---- Outrigger arms (4 corners) ----
-    const outriggerPositions = [
-      { x: cx - 60, y: baseY + 5,  label: "FL" },
-      { x: cx + 60, y: baseY + 5,  label: "FR" },
-      { x: cx - 60, y: baseY + 20, label: "RL" },
-      { x: cx + 60, y: baseY + 20, label: "RR" },
-    ];
+    // ---- Boom dimensions ----
+    const MAX_BOOM_PX = Math.min(W, H) * 0.58;   // Base boom length in pixels
+    const extFraction = Math.min(extMM / 600, 1); // Assume 600mm max extension
+    const boomPx = MAX_BOOM_PX * (1 + extFraction * 0.4); // 1.0x – 1.4x based on extension
 
-    outriggerPositions.forEach((op, i) => {
-      const fsrVal = fsr[i] ?? 0;
-      const level = fsrVal / 4095;
-      const color = level < 0.3
-        ? "#00E676"
-        : level < 0.65
-        ? "#FFB347"
-        : "#FF3B3B";
+    // Convert boom angle to canvas angle (0° = right, boom goes up-left)
+    const angleRad = (boomAngle * Math.PI) / 180;
+    const boomEndX = pivX + Math.cos(Math.PI - angleRad) * boomPx;
+    const boomEndY = pivY - Math.sin(angleRad) * boomPx;
 
-      // Arm line
-      ctx.strokeStyle = "rgba(255,255,255,0.25)";
-      ctx.lineWidth = 3;
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.moveTo(cx, baseY + 10);
-      ctx.lineTo(op.x, op.y);
-      ctx.stroke();
+    // ---- Safe load zone arc ----
+    const safeStroke = alarmLevel === 0 ? "#00D68F" : alarmLevel === 1 ? "#F5A623" : "#FF3B3B";
 
-      // Foot pad
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.8;
-      ctx.beginPath();
-      ctx.ellipse(op.x, op.y + 8, 10, 4, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1.0;
-    });
-
-    // ---- Truck body ----
-    const truckW = 80, truckH = 28;
-    ctx.fillStyle = "rgba(30, 38, 55, 0.95)";
-    ctx.strokeStyle = "rgba(0, 212, 255, 0.5)";
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = safeStroke;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 4]);
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath();
+    ctx.arc(pivX, pivY, boomPx + 8, -Math.PI, 0);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
     ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.roundRect(cx - truckW / 2, baseY - truckH / 2, truckW, truckH, 5);
-    ctx.fill();
-    ctx.stroke();
 
-    // Cab
-    ctx.fillStyle = "rgba(40, 50, 70, 0.9)";
-    ctx.beginPath();
-    ctx.roundRect(cx - truckW / 2, baseY - truckH / 2 - 14, 26, 18, 4);
-    ctx.fill();
-    ctx.stroke();
-
-    // Wheels
-    const wheelPositions = [cx - 25, cx, cx + 25];
-    wheelPositions.forEach(wx => {
-      ctx.fillStyle = "#1A1E28";
-      ctx.strokeStyle = "rgba(255,255,255,0.2)";
+    // ---- Swing arc at base ----
+    if (Math.abs(swingAngle) > 0.5) {
+      ctx.strokeStyle = "rgba(0,212,255,0.3)";
       ctx.lineWidth = 1;
+      ctx.setLineDash([2, 3]);
       ctx.beginPath();
-      ctx.ellipse(wx, baseY + truckH / 2, 6, 5, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    });
-
-    // ---- Turntable base ----
-    ctx.fillStyle = "rgba(0, 212, 255, 0.1)";
-    ctx.strokeStyle = "rgba(0, 212, 255, 0.4)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.ellipse(cx, baseY - truckH / 2, 22, 8, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    // ---- Swing angle indicator arc ----
-    const swingRad = (swingAngle * Math.PI) / 180;
-    ctx.strokeStyle = "rgba(0, 212, 255, 0.3)";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    ctx.arc(cx, baseY - truckH / 2, 32, -Math.PI / 2 - 0.3, -Math.PI / 2 + swingRad, false);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // ---- Boom arm ----
-    const boomRad = ((90 - boomAngle) * Math.PI) / 180;  // Convert to canvas angle
-    const boomBaseX = cx;
-    const boomBaseY = baseY - truckH / 2;
-
-    // Max boom length in pixels
-    // Extension percentage (0-1)
-    const extPct = Math.min(extMM / 500, 1);  // Assume 500mm max extension
-    const boomLength = 70 + extPct * 40;  // 70-110px range
-
-    const boomTipX = boomBaseX + Math.cos(boomRad) * boomLength;
-    const boomTipY = boomBaseY - Math.sin(boomRad) * boomLength;  // Y inverted
-
-    // Boom fill color by alarm level
-    const boomColor = alarmLvl === 0
-      ? "rgba(0, 212, 255, 0.8)"
-      : alarmLvl === 1
-      ? "rgba(255, 179, 71, 0.8)"
-      : "rgba(255, 59, 59, 0.8)";
-
-    // Boom arm (thick trapezoid approximated as lines)
-    ctx.strokeStyle = boomColor;
-    ctx.lineWidth = 8;
-    ctx.lineCap = "round";
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.moveTo(boomBaseX, boomBaseY);
-    ctx.lineTo(boomTipX, boomTipY);
-    ctx.stroke();
-
-    // Extension section (lighter, thinner)
-    if (extPct > 0.05) {
-      const innerLength = 70 * (1 - extPct * 0.3);
-      const innerX = boomBaseX + Math.cos(boomRad) * innerLength;
-      const innerY = boomBaseY - Math.sin(boomRad) * innerLength;
-      ctx.strokeStyle = "rgba(255,255,255,0.4)";
-      ctx.lineWidth = 4;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(innerX, innerY);
-      ctx.lineTo(boomTipX, boomTipY);
+      ctx.arc(pivX, pivY, 28,
+        -Math.PI / 2 - (swingAngle * Math.PI) / 180,
+        -Math.PI / 2
+      );
       ctx.stroke();
       ctx.setLineDash([]);
     }
 
-    // ---- Rope / hook ----
-    const ropePx = Math.min((ropeLen / 2000) * 60, 60);  // Max 60px rope
-    const hookX = boomTipX;
-    const hookY = boomTipY + ropePx;
+    // ---- Angle arc from horizontal ----
+    ctx.strokeStyle = "rgba(0,212,255,0.2)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath();
+    ctx.arc(pivX, pivY, 42, Math.PI, Math.PI + angleRad, false);
+    ctx.stroke();
+    ctx.setLineDash([]);
 
-    ctx.strokeStyle = "rgba(255,255,255,0.5)";
+    // ---- Ground line ----
+    ctx.strokeStyle = "rgba(255,255,255,0.07)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, pivY + 18);
+    ctx.lineTo(W, pivY + 18);
+    ctx.stroke();
+
+    // ---- Turret base ----
+    // Trapezoid base
+    ctx.fillStyle = "#1A1F2C";
+    ctx.strokeStyle = "rgba(0,212,255,0.25)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pivX - 22, pivY + 18);
+    ctx.lineTo(pivX + 22, pivY + 18);
+    ctx.lineTo(pivX + 14, pivY);
+    ctx.lineTo(pivX - 14, pivY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Turret circle
+    ctx.fillStyle = "#232938";
+    ctx.strokeStyle = "rgba(0,212,255,0.35)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(pivX, pivY, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // ---- Main boom arm ----
+    const boomColor = alarmLevel === 0 ? "#00D4FF" : alarmLevel === 1 ? "#F5A623" : "#FF3B3B";
+    const boomW = 9;
+
+    // Shadow / glow
+    ctx.save();
+    ctx.shadowColor = boomColor;
+    ctx.shadowBlur = 8;
+    ctx.strokeStyle = boomColor;
+    ctx.lineWidth = boomW;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(pivX, pivY);
+    ctx.lineTo(boomEndX, boomEndY);
+    ctx.stroke();
+    ctx.restore();
+
+    // Boom body
+    ctx.strokeStyle = boomColor;
+    ctx.lineWidth = boomW;
+    ctx.lineCap = "round";
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    ctx.moveTo(pivX, pivY);
+    ctx.lineTo(boomEndX, boomEndY);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // Lattice pattern on boom
+    const latticeStep = 14;
+    const boomDx = boomEndX - pivX;
+    const boomDy = boomEndY - pivY;
+    const boomLen = Math.sqrt(boomDx*boomDx + boomDy*boomDy);
+    const boomAngleActual = Math.atan2(boomDy, boomDx);
+    const perp = boomAngleActual + Math.PI / 2;
+
+    ctx.strokeStyle = "rgba(0,0,0,0.4)";
+    ctx.lineWidth = 1;
+    for (let d = latticeStep; d < boomLen - 6; d += latticeStep) {
+      const t = d / boomLen;
+      const mx = pivX + boomDx * t;
+      const my = pivY + boomDy * t;
+      const w = (boomW / 2) * 0.7;
+      ctx.beginPath();
+      ctx.moveTo(mx + Math.cos(perp) * w, my + Math.sin(perp) * w);
+      ctx.lineTo(mx - Math.cos(perp) * w, my - Math.sin(perp) * w);
+      ctx.stroke();
+    }
+
+    // ---- Extension inner boom ----
+    if (extFraction > 0.02) {
+      const innerStart = 0.35; // starts 35% from base
+      const innerX0 = pivX + boomDx * innerStart;
+      const innerY0 = pivY + boomDy * innerStart;
+
+      ctx.strokeStyle = "rgba(255,255,255,0.5)";
+      ctx.lineWidth = 4;
+      ctx.lineCap = "round";
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(innerX0, innerY0);
+      ctx.lineTo(boomEndX, boomEndY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // ---- Jib head ----
+    ctx.fillStyle = boomColor;
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.arc(boomEndX, boomEndY, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // ---- Rope ----
+    const maxRopePx = H * 0.25;
+    const ropePx = Math.min((ropeLength / 2000) * maxRopePx, maxRopePx);
+
+    ctx.strokeStyle = "rgba(200,210,230,0.5)";
     ctx.lineWidth = 1;
     ctx.setLineDash([]);
     ctx.beginPath();
-    ctx.moveTo(boomTipX, boomTipY);
-    ctx.lineTo(hookX, hookY);
+    ctx.moveTo(boomEndX, boomEndY);
+    ctx.lineTo(boomEndX, boomEndY + ropePx);
     ctx.stroke();
 
     // Hook
-    ctx.strokeStyle = "rgba(255,179,71,0.9)";
-    ctx.lineWidth = 2;
+    const hookX = boomEndX;
+    const hookY = boomEndY + ropePx;
+    ctx.strokeStyle = "#F5A623";
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.arc(hookX, hookY + 4, 4, 0, Math.PI * 1.7);
     ctx.stroke();
 
-    // ---- IMU tilt indicator (bottom center) ----
-    const tiltX = cx;
-    const tiltY = H - 18;
-    const imuRoll = frame?.imuRoll ?? 0;
-    const tiltPx = (imuRoll / 30) * 20;  // ±30° maps to ±20px
-    ctx.fillStyle = Math.abs(imuRoll) > 5
-      ? "rgba(255,179,71,0.8)"
-      : "rgba(0,212,255,0.5)";
-    ctx.fillRect(tiltX - 20, tiltY - 2, 40, 4);
-    ctx.fillStyle = "rgba(0,212,255,1.0)";
-    ctx.beginPath();
-    ctx.arc(tiltX + tiltPx, tiltY, 5, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Angle labels
-    ctx.fillStyle = "rgba(255,255,255,0.4)";
-    ctx.font = "10px Inter, sans-serif";
+    // ---- Labels ----
+    ctx.fillStyle = "rgba(0,212,255,0.7)";
+    ctx.font = "500 10px Inter, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(`Boom: ${boomAngle.toFixed(1)}°`, boomTipX, boomTipY - 8);
-    ctx.fillText(`Swing: ${swingAngle.toFixed(1)}°`, cx, baseY - truckH / 2 - 20);
+
+    // Angle label on arc
+    const arcLabelR = 55;
+    const arcLabelAngle = Math.PI + angleRad * 0.5;
+    ctx.fillText(
+      `${boomAngle.toFixed(1)}°`,
+      pivX + Math.cos(arcLabelAngle) * arcLabelR,
+      pivY + Math.sin(arcLabelAngle) * arcLabelR + 3
+    );
+
+    // Extension label near tip
+    if (extFraction > 0.05) {
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.font = "9px JetBrains Mono, monospace";
+      const midBoomX = pivX + boomDx * 0.65;
+      const midBoomY = pivY + boomDy * 0.65 - 10;
+      ctx.fillText(`+${extMM.toFixed(0)}mm`, midBoomX, midBoomY);
+    }
+
+    // Swing label
+    if (Math.abs(swingAngle) > 0.5) {
+      ctx.fillStyle = "rgba(0,212,255,0.5)";
+      ctx.font = "9px Inter, sans-serif";
+      ctx.fillText(`⟳ ${swingAngle.toFixed(1)}°`, pivX, pivY - 32);
+    }
 
   }, [frame]);
 
@@ -228,8 +259,8 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     <canvas
       ref={canvasRef}
       width={320}
-      height={280}
-      style={{ borderRadius: "6px", background: "rgba(0,0,0,0.2)" }}
+      height={240}
+      className="crane-canvas"
     />
   );
 }

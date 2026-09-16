@@ -35,15 +35,15 @@ QueueHandle_t     motorCommandQueue = NULL;
 SensorData sensorData;
 
 // ======================== I2C BUSES ========================
-// Bus 2: Software I2C for telescope AS5600 + MPU6050
+// Bus 2: Software I2C for telescope AS5600 ONLY (MPU6050 moved to Wire/Bus0)
 SoftI2C softI2C(I2C2_SDA, I2C2_SCL);
 
 // ======================== SENSOR DRIVERS ========================
-AS5600Driver swingEncoder(AS5600Driver::BUS_WIRE0);            // Bus 0
+AS5600Driver swingEncoder(AS5600Driver::BUS_WIRE0);            // Bus 0 (shares with MPU)
 AS5600Driver boomEncoder(AS5600Driver::BUS_WIRE1);             // Bus 1
 AS5600Driver teleEncoder(AS5600Driver::BUS_SOFT, &softI2C);    // Bus 2
 
-MPU6050Driver imu(&softI2C);                                    // Bus 2 (0x68, no conflict)
+MPU6050Driver imu;                                             // Wire Bus 0 (GPIO 21/22)
 
 HX711Driver loadCell(HX711_DT_PIN, HX711_SCK_PIN);
 FSRReader   fsrReader;

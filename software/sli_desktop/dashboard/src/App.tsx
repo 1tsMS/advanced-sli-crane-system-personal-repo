@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
-  LayoutDashboard, Terminal, SlidersHorizontal,
-  Database, Wrench, Settings, Zap, Activity
+  LayoutDashboard, Terminal, Database,
+  Activity, Settings, Zap, Cpu
 } from "lucide-react";
 import type { TabId } from "./types";
 import { useTelemetry } from "./hooks/useTelemetry";
@@ -14,267 +14,263 @@ import { DebugTab } from "./components/debug/DebugTab";
 
 const API_BASE = "http://localhost:8000/api";
 
-const NAV_ITEMS: { id: TabId; label: string; icon: React.ReactNode }[] = [
-  { id: "dashboard",   label: "Dashboard",    icon: <LayoutDashboard size={15} /> },
-  { id: "debug",       label: "Debug",        icon: <Terminal size={15} /> },
-  { id: "calibration", label: "Calibration",  icon: <SlidersHorizontal size={15} /> },
-  { id: "datalogger",  label: "Data Logger",  icon: <Database size={15} /> },
-  { id: "loadchart",   label: "Load Chart",   icon: <Activity size={15} /> },
-  { id: "controller",  label: "Controller",   icon: <Wrench size={15} /> },
-  { id: "settings",    label: "Settings",     icon: <Settings size={15} /> },
+const NAV: { id: TabId; icon: React.ReactNode; label: string }[] = [
+  { id: "dashboard",  icon: <LayoutDashboard size={16} />, label: "Dashboard" },
+  { id: "debug",      icon: <Terminal size={16} />,        label: "Debug & Calibrate" },
+  { id: "datalogger", icon: <Database size={16} />,        label: "Data Logger" },
+  { id: "loadchart",  icon: <Activity size={16} />,        label: "Load Chart" },
+  { id: "settings",   icon: <Settings size={16} />,        label: "Settings" },
 ];
 
-const ALARM_LABELS = ["SYSTEM OK", "WARNING", "CRITICAL", "E-STOP"];
-const ALARM_CLASSES = ["ok", "warn", "critical", "estop"];
+const ALARM_LABEL  = ["ONLINE", "WARNING", "CRITICAL", "E-STOP"];
+const ALARM_CLASS  = ["ok",     "warn",    "critical",  "estop" ];
 
-async function apiPost(path: string, body: object = {}) {
-  try {
-    await fetch(`${API_BASE}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  } catch { /* offline */ }
+async function estop() {
+  try { await fetch(`${API_BASE}/estop`, { method: "POST" }); } catch { /* offline */ }
+}
+
+function fsrLevel(val: number): "off" | "low" | "mid" | "high" {
+  if (val < 50)  return "off";
+  const p = val / 4095;
+  if (p < 0.3)   return "low";
+  if (p < 0.65)  return "mid";
+  return "high";
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabId>("dashboard");
+  const [tab, setTab]     = useState<TabId>("dashboard");
   const [speed, setSpeed] = useState(150);
+
   const { frame, debugReport, lastAck, wsStatus } = useTelemetry();
 
-  const alarmLvl = frame?.alarmLevel ?? 0;
-  const alarmClass = ALARM_CLASSES[alarmLvl] ?? "ok";
+  const alarm = frame?.alarmLevel ?? 0;
+  const alarmClass = ALARM_CLASS[alarm];
+  const alarmLabel = wsStatus === "connected"
+    ? ALARM_LABEL[alarm]
+    : wsStatus === "connecting" ? "CONNECTING" : "OFFLINE";
+  const alarmPillClass = wsStatus !== "connected" ? "ok" : alarmClass;
 
-  const fsrLevel = (val: number): "low" | "mid" | "high" => {
-    const pct = val / 4095;
-    return pct < 0.3 ? "low" : pct < 0.65 ? "mid" : "high";
-  };
-
-  const FSR_LABELS = ["FL", "FR", "RL", "RR"];
+  const fsr = frame?.fsr ?? [0, 0, 0, 0];
 
   return (
     <div className="app-shell">
-      {/* Sidebar */}
+
+      {/* Icon Sidebar */}
       <aside className="sidebar">
-        <div className="sidebar-logo">
-          <div className="sidebar-logo-icon">
-            <Zap size={15} color="#fff" />
-          </div>
-          <div>
-            <div className="sidebar-logo-text">SLI</div>
-            <div className="sidebar-logo-sub">Advanced v1.0</div>
-          </div>
+        <div className="sidebar-brand">
+          <Cpu size={14} color="#fff" />
         </div>
 
-        {NAV_ITEMS.map(item => (
+        {NAV.map(n => (
           <div
-            key={item.id}
-            className={`nav-item ${activeTab === item.id ? "active" : ""}`}
-            onClick={() => setActiveTab(item.id)}
+            key={n.id}
+            className={`nav-btn ${tab === n.id ? "active" : ""}`}
+            onClick={() => setTab(n.id)}
+            title={n.label}
           >
-            {item.icon}
-            {item.label}
+            {n.icon}
+            <span className="tooltip">{n.label}</span>
           </div>
         ))}
 
-        {/* Connection status in sidebar footer */}
-        <div className="sidebar-footer">
-          <div className="conn-badge">
-            <div className={`conn-dot ${wsStatus === "connected" ? "connected" : wsStatus === "error" ? "error" : ""}`} />
-            <span style={{ fontSize: 10 }}>
-              {wsStatus === "connected" ? "Live" : wsStatus === "connecting" ? "Connecting..." : "Offline"}
-            </span>
-          </div>
-          {frame && (
-            <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 3, fontFamily: "var(--font-mono)" }}>
-              {new Date(frame.timestamp * 1000).toLocaleTimeString()}
-            </div>
-          )}
-        </div>
+        <div className="sidebar-spacer" />
+        <div
+          className={`sidebar-conn ${wsStatus === "connected" ? "live" : ""}`}
+          title={wsStatus}
+        />
       </aside>
 
-      {/* Main content */}
-      <div className="main-content">
-        {/* Header bar */}
-        <div className="header-bar">
-          <button
-            className="estop-btn"
-            onClick={() => apiPost("/estop")}
-            id="estop-button"
-          >
-            <Zap size={13} />
-            E-STOP
-          </button>
+      {/* Main area */}
+      <div className="main-area">
 
-          <div className="header-divider" />
+        {/* Header */}
+        <div className="header">
+          <span className="header-title">
+            Advanced SLI
+          </span>
 
-          <div className="conn-status-chip">
-            <div className={`conn-dot ${wsStatus === "connected" ? "connected" : ""}`} />
-            WS: {wsStatus}
-          </div>
+          <div className="header-sep" />
 
+          {/* Live stats — only show when connected + have data */}
           {frame && (
             <>
-              <div className="header-divider" />
-              <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                Load: <span style={{ color: "var(--cyan)" }}>{frame.actualLoad.toFixed(2)} kg</span>
+              <div className="header-stat">
+                Boom <span className="header-stat-val">{frame.boomAngle.toFixed(1)}°</span>
               </div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                Boom: <span style={{ color: "var(--cyan)" }}>{frame.boomAngle.toFixed(1)}°</span>
+              <div className="header-stat">
+                Load <span className="header-stat-val">{frame.actualLoad.toFixed(2)} kg</span>
+              </div>
+              <div className="header-stat">
+                <span className="header-stat-val" style={{
+                  color: frame.loadPercent >= 100 ? "var(--red)" : frame.loadPercent >= 80 ? "var(--amber)" : "var(--cyan)"
+                }}>
+                  {frame.loadPercent.toFixed(1)}%
+                </span>
               </div>
             </>
           )}
 
-          {/* Alarm chip — right side */}
-          <div className={`alarm-chip ${alarmClass}`}>
+          <div className="header-fill" />
+
+          {/* Alarm pill */}
+          <div className={`alarm-pill ${alarmPillClass}`}>
             <span>●</span>
-            {ALARM_LABELS[alarmLvl]}
+            {alarmLabel}
           </div>
+
+          <div className="header-sep" />
+
+          <button className="estop-btn" id="estop-button" onClick={estop}>
+            <Zap size={12} />
+            E-STOP
+          </button>
         </div>
 
         {/* Page content */}
-        {activeTab === "dashboard" && (
-          <div className="page-content" style={{ overflow: "hidden" }}>
-            <div className="dashboard-grid">
+        <div className="page">
 
-              {/* LEFT: Telemetry */}
+          {/* ===== DASHBOARD ===== */}
+          {tab === "dashboard" && (
+            <div className="dash-grid">
+
+              {/* Left: Telemetry */}
               <TelemetryPanel frame={frame} />
 
-              {/* CENTER: Motor controls */}
-              <div className="glass-card" style={{ overflow: "hidden" }}>
-                <MotorControls speed={speed} onSpeedChange={setSpeed} />
-              </div>
-
-              {/* RIGHT: Visualizer + Outrigger FSR */}
-              <div className="viz-panel">
-                {/* Crane canvas */}
-                <div className="glass-card crane-canvas-wrapper">
-                  <CraneVisualizer frame={frame} />
-
-                  {/* 3 Gauges */}
+              {/* Center: Visualizer + Motor Controls */}
+              <div className="center-col">
+                {/* Crane vis */}
+                <div className="panel crane-panel">
+                  <div className="panel-header">
+                    <span className="ph-icon">◈</span>
+                    Crane View
+                  </div>
+                  <div className="crane-canvas-wrap">
+                    <CraneVisualizer frame={frame} />
+                  </div>
+                  {/* Gauges */}
                   <div className="gauges-row">
-                    <Gauge
-                      value={frame?.loadPercent ?? 0}
-                      max={120}
-                      label="Load"
-                      unit="%"
-                      size={82}
-                    />
-                    <Gauge
-                      value={frame?.boomAngle ?? 0}
-                      max={80}
-                      label="Boom"
-                      unit="°"
-                      color="#00E676"
-                      size={82}
-                    />
-                    <Gauge
-                      value={Math.abs(frame?.imuRoll ?? 0)}
-                      max={15}
-                      label="Tilt"
-                      unit="°"
-                      color="#FFB347"
-                      size={82}
-                    />
+                    <Gauge value={frame?.loadPercent ?? 0} max={120} label="Load" unit="%" size={80} />
+                    <Gauge value={frame?.boomAngle ?? 0} max={80} label="Boom" unit="°" color="#00D68F" size={80} />
+                    <Gauge value={Math.abs(frame?.imuRoll ?? 0)} max={15} label="Tilt" unit="°" color="#F5A623" size={80} />
                   </div>
                 </div>
 
-                {/* FSR Outrigger view */}
-                <div className="glass-card fsr-panel">
-                  <div className="section-title">Outrigger Load Distribution</div>
-                  <div className="fsr-grid">
-                    {(frame?.fsr ?? [0, 0, 0, 0]).map((val, i) => (
-                      <div className="fsr-corner" key={i}>
-                        <div className="fsr-circle" data-level={fsrLevel(val)}>
-                          {Math.round((val / 4095) * 100)}%
+                {/* Motor controls below */}
+                <div style={{ flexShrink: 0, minHeight: 0 }}>
+                  <MotorControls speed={speed} onSpeedChange={setSpeed} />
+                </div>
+              </div>
+
+              {/* Right: FSR */}
+              <div className="right-col">
+                <div className="panel fsr-panel">
+                  <div className="panel-header">
+                    <span className="ph-icon">◈</span>
+                    Outrigger Load
+                  </div>
+                  <div className="fsr-body">
+                    <div className="fsr-layout">
+                      {/* FL */}
+                      <div className="fsr-dot-wrap" style={{ justifySelf: "center" }}>
+                        <div className="fsr-dot" data-level={fsrLevel(fsr[0])}>
+                          {fsr[0] > 50 ? `${Math.round(fsr[0]/4095*100)}%` : "—"}
                         </div>
-                        <div className="fsr-label">{FSR_LABELS[i]}</div>
+                        <div className="fsr-dot-label">FL</div>
                       </div>
-                    ))}
+
+                      {/* Top spacer */}
+                      <div />
+
+                      {/* FR */}
+                      <div className="fsr-dot-wrap" style={{ justifySelf: "center" }}>
+                        <div className="fsr-dot" data-level={fsrLevel(fsr[1])}>
+                          {fsr[1] > 50 ? `${Math.round(fsr[1]/4095*100)}%` : "—"}
+                        </div>
+                        <div className="fsr-dot-label">FR</div>
+                      </div>
+
+                      {/* Left spacer */}
+                      <div />
+
+                      {/* Center label */}
+                      <div className="fsr-center-label">
+                        <div style={{ fontSize: 10, color: "var(--text-secondary)", fontWeight: 600 }}>BASE</div>
+                      </div>
+
+                      {/* Right spacer */}
+                      <div />
+
+                      {/* RL */}
+                      <div className="fsr-dot-wrap" style={{ justifySelf: "center" }}>
+                        <div className="fsr-dot" data-level={fsrLevel(fsr[2])}>
+                          {fsr[2] > 50 ? `${Math.round(fsr[2]/4095*100)}%` : "—"}
+                        </div>
+                        <div className="fsr-dot-label">RL</div>
+                      </div>
+
+                      {/* Bottom spacer */}
+                      <div />
+
+                      {/* RR */}
+                      <div className="fsr-dot-wrap" style={{ justifySelf: "center" }}>
+                        <div className="fsr-dot" data-level={fsrLevel(fsr[3])}>
+                          {fsr[3] > 50 ? `${Math.round(fsr[3]/4095*100)}%` : "—"}
+                        </div>
+                        <div className="fsr-dot-label">RR</div>
+                      </div>
+                    </div>
+
+                    {/* Balance indicator */}
+                    {fsr.some(v => v > 50) && (
+                      <div style={{ fontSize: 10, color: "var(--text-muted)", textAlign: "center", marginTop: 4 }}>
+                        {fsr.every(v => v > 50)
+                          ? <span style={{ color: "var(--green)" }}>● All legs grounded</span>
+                          : <span style={{ color: "var(--amber)" }}>⚠ Check outriggers</span>
+                        }
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
+
             </div>
-          </div>
-        )}
+          )}
 
-        {activeTab === "debug" && (
-          <DebugTab debugReport={debugReport} lastAck={lastAck} />
-        )}
+          {/* ===== DEBUG & CALIBRATE ===== */}
+          {tab === "debug" && (
+            <DebugTab debugReport={debugReport} lastAck={lastAck} />
+          )}
 
-        {activeTab === "calibration" && (
-          <CalibrationTab />
-        )}
+          {/* ===== SETTINGS ===== */}
+          {tab === "settings" && (
+            <SettingsTab wsConnected={wsStatus === "connected"} />
+          )}
 
-        {activeTab === "settings" && (
-          <SettingsTab wsConnected={wsStatus === "connected"} />
-        )}
+          {/* ===== PLACEHOLDERS ===== */}
+          {(tab === "datalogger" || tab === "loadchart") && (
+            <PlaceholderTab name={tab} />
+          )}
 
-        {(activeTab === "datalogger" || activeTab === "loadchart" || activeTab === "controller") && (
-          <PlaceholderTab name={activeTab} />
-        )}
+        </div>
       </div>
     </div>
   );
 }
 
-/* ====================== CALIBRATION TAB ====================== */
-function CalibrationTab() {
-  const [status, setStatus] = useState<Record<string, string>>({});
-
-  const run = async (key: string, path: string) => {
-    setStatus(s => ({ ...s, [key]: "Running..." }));
-    try {
-      const res = await fetch(`${API_BASE}${path}`, { method: "POST" });
-      const data = await res.json();
-      setStatus(s => ({ ...s, [key]: data.message ?? (res.ok ? "Done ✓" : "Failed") }));
-    } catch {
-      setStatus(s => ({ ...s, [key]: "Backend offline" }));
-    }
-  };
-
-  const cals = [
-    { key: "tare",   label: "Tare Load Cell",          sub: "Zero the load cell with no load attached", path: "/calibrate/tare" },
-    { key: "imu",    label: "Zero IMU",                 sub: "Set current orientation as flat/zero — keep system still", path: "/calibrate/imu" },
-    { key: "tele",   label: "Reset Telescope Position", sub: "Reset telescope encoder to zero (retracted position)", path: "/calibrate/tele" },
-  ];
-
-  return (
-    <div className="page-content scroll-y">
-      <div style={{ maxWidth: 480, display: "flex", flexDirection: "column", gap: 12 }}>
-        {cals.map(cal => (
-          <div className="glass-card" key={cal.key} style={{ padding: "14px 16px" }}>
-            <div style={{ marginBottom: 6 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{cal.label}</div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{cal.sub}</div>
-            </div>
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <button className="btn-primary" onClick={() => run(cal.key, cal.path)}>
-                Run
-              </button>
-              {status[cal.key] && (
-                <span style={{ fontSize: 11, color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
-                  {status[cal.key]}
-                </span>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ====================== PLACEHOLDER TAB ====================== */
 function PlaceholderTab({ name }: { name: string }) {
-  const label = name.replace(/([A-Z])/g, " $1").replace(/^./, s => s.toUpperCase());
+  const labels: Record<string, string> = {
+    datalogger: "Data Logger",
+    loadchart:  "Load Chart Editor",
+  };
   return (
-    <div className="page-content" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ textAlign: "center", color: "var(--text-muted)" }}>
-        <div style={{ fontSize: 32, marginBottom: 8 }}>🚧</div>
-        <div style={{ fontSize: 14, fontWeight: 600 }}>{label}</div>
-        <div style={{ fontSize: 12, marginTop: 4 }}>Coming in Phase 2</div>
-      </div>
+    <div style={{
+      flex: 1, display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center",
+      color: "var(--text-muted)", gap: 8,
+    }}>
+      <Database size={32} strokeWidth={1} />
+      <div style={{ fontSize: 13, fontWeight: 600 }}>{labels[name]}</div>
+      <div style={{ fontSize: 11 }}>Coming in Phase 2</div>
     </div>
   );
 }

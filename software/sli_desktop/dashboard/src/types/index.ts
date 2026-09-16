@@ -29,8 +29,6 @@ export type AlarmLevel = 0 | 1 | 2 | 3;
 export type TabId =
   | "dashboard"
   | "debug"
-  | "calibration"
   | "datalogger"
-  | "controller"
   | "loadchart"
   | "settings";

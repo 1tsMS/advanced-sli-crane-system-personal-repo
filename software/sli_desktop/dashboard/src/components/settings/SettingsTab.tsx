@@ -1,196 +1,199 @@
 import { useState, useEffect } from "react";
-import { Wifi, WifiOff, PlugZap, Unplug } from "lucide-react";
+import { PlugZap, Unplug, Wifi, WifiOff, RefreshCcw } from "lucide-react";
 
 const API_BASE = "http://localhost:8000/api";
+
+interface PortEntry { port: string; description: string; }
+interface BackendStatus {
+  connected: boolean;
+  port?: string;
+  baudRate?: number;
+  rxRate?: number;
+  backendOK: boolean;
+}
 
 interface SettingsTabProps {
   wsConnected: boolean;
 }
 
-interface PortEntry { port: string; description: string; }
-
 export function SettingsTab({ wsConnected }: SettingsTabProps) {
-  const [ports, setPorts] = useState<PortEntry[]>([]);
-  const [selectedPort, setSelectedPort] = useState("");
-  const [baud, setBaud] = useState(115200);
-  const [status, setStatus] = useState<{ connected: boolean; port?: string; rxRate?: number } | null>(null);
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [ports, setPorts]       = useState<PortEntry[]>([]);
+  const [selectedPort, setPort] = useState("");
+  const [baud, setBaud]         = useState(115200);
+  const [status, setStatus]     = useState<BackendStatus | null>(null);
+  const [msg, setMsg]           = useState("");
+  const [loading, setLoading]   = useState(false);
 
-  const loadPorts = async () => {
+  const fetchPorts = async () => {
     try {
       const res = await fetch(`${API_BASE}/ports`);
-      const data = await res.json();
-      setPorts(data.ports ?? []);
-    } catch {
-      setPorts([]);
-    }
+      const d = await res.json();
+      setPorts(d.ports ?? []);
+    } catch { setPorts([]); }
   };
 
-  const loadStatus = async () => {
+  const fetchStatus = async () => {
     try {
       const res = await fetch(`${API_BASE}/status`);
-      const data = await res.json();
-      setStatus(data);
-    } catch {
-      setStatus(null);
-    }
+      setStatus(await res.json());
+    } catch { setStatus(null); }
   };
 
   useEffect(() => {
-    loadPorts();
-    loadStatus();
-    const interval = setInterval(loadStatus, 2000);
-    return () => clearInterval(interval);
+    fetchPorts();
+    fetchStatus();
+    const t = setInterval(fetchStatus, 2000);
+    return () => clearInterval(t);
   }, []);
 
   const connect = async () => {
-    if (!selectedPort) { setMessage("Select a port first"); return; }
-    setLoading(true);
-    setMessage("");
+    if (!selectedPort) { setMsg("Select a port first."); return; }
+    setLoading(true); setMsg("");
     try {
       const res = await fetch(`${API_BASE}/connect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ port: selectedPort, baudRate: baud }),
       });
-      const data = await res.json();
-      setMessage(data.message ?? (res.ok ? "Connected!" : "Failed"));
-      await loadStatus();
-    } catch (e) {
-      setMessage("Backend unreachable");
-    } finally {
-      setLoading(false);
-    }
+      const d = await res.json();
+      setMsg(d.message ?? (res.ok ? "Connected" : "Failed"));
+      await fetchStatus();
+    } catch { setMsg("Backend unreachable"); }
+    finally { setLoading(false); }
   };
 
   const disconnect = async () => {
     setLoading(true);
     try {
       await fetch(`${API_BASE}/disconnect`, { method: "POST" });
-      setMessage("Disconnected");
-      await loadStatus();
-    } catch {
-      setMessage("Error");
-    } finally {
-      setLoading(false);
-    }
+      setMsg("Disconnected");
+      await fetchStatus();
+    } catch { setMsg("Error"); }
+    finally { setLoading(false); }
   };
 
-  return (
-    <div className="page-content scroll-y">
-      <div style={{ maxWidth: 500, display: "flex", flexDirection: "column", gap: 16 }}>
+  const isConn = !!status?.connected;
 
-        {/* Backend + WS Status */}
-        <div className="glass-card" style={{ padding: "14px 16px" }}>
-          <div className="section-title">Connection Status</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+  return (
+    <div className="settings-page">
+      <div className="settings-grid">
+
+        {/* Connection card */}
+        <div className="settings-card">
+          <div className="section-label">Serial Connection</div>
+
+          <div className="form-row">
+            <span className="form-label">Port</span>
+            <select
+              className="form-select"
+              value={selectedPort}
+              onChange={e => setPort(e.target.value)}
+            >
+              <option value="">— select —</option>
+              {ports.map(p => (
+                <option key={p.port} value={p.port}>
+                  {p.port}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn-ghost"
+              onClick={fetchPorts}
+              style={{ padding: "5px 8px", flexShrink: 0 }}
+              title="Refresh ports"
+            >
+              <RefreshCcw size={12} />
+            </button>
+          </div>
+
+          {/* Port description — separate row to prevent overflow */}
+          {selectedPort && (
+            <div style={{
+              fontSize: 10, color: "var(--text-muted)", paddingLeft: 78,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>
+              {ports.find(p => p.port === selectedPort)?.description ?? ""}
+            </div>
+          )}
+
+          <div className="form-row">
+            <span className="form-label">Baud Rate</span>
+            <select className="form-select" value={baud} onChange={e => setBaud(Number(e.target.value))}>
+              <option value={9600}>9600</option>
+              <option value={115200}>115200</option>
+              <option value={230400}>230400</option>
+            </select>
+          </div>
+
+          <div className="form-btn-row">
+            <button className="btn-primary" style={{ flex: 1 }} onClick={connect} disabled={loading || isConn}>
+              {loading ? "Connecting..." : "Connect"}
+            </button>
+            <button className="btn-ghost" style={{ flex: 1 }} onClick={disconnect} disabled={loading || !isConn}>
+              Disconnect
+            </button>
+          </div>
+
+          {msg && (
+            <div style={{ fontSize: 10, color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+              {msg}
+            </div>
+          )}
+        </div>
+
+        {/* Status card */}
+        <div className="settings-card">
+          <div className="section-label">Connection Status</div>
+          <div className="status-rows">
             <StatusRow
-              icon={wsConnected ? <Wifi size={13} /> : <WifiOff size={13} />}
               label="WebSocket"
+              icon={wsConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
               value={wsConnected ? "Connected" : "Disconnected"}
               ok={wsConnected}
             />
             <StatusRow
-              icon={status?.connected ? <PlugZap size={13} /> : <Unplug size={13} />}
               label="ESP32 Serial"
-              value={
-                status?.connected
-                  ? `${status.port} @ ${status.rxRate?.toFixed(1)} pkt/s`
-                  : "Not connected"
-              }
-              ok={!!status?.connected}
+              icon={isConn ? <PlugZap size={12} /> : <Unplug size={12} />}
+              value={isConn ? `${status?.port}` : "Not connected"}
+              ok={isConn}
+            />
+            {isConn && (
+              <>
+                <StatusRow label="Baud" value={`${status?.baudRate ?? "—"}`} ok={true} />
+                <StatusRow label="RX Rate" value={`${status?.rxRate?.toFixed(1) ?? "—"} pkt/s`} ok={true} />
+              </>
+            )}
+            <StatusRow
+              label="Backend API"
+              value={status?.backendOK ? "Running" : "Unreachable"}
+              ok={!!status?.backendOK}
             />
           </div>
-        </div>
 
-        {/* Port selection */}
-        <div className="glass-card" style={{ padding: "14px 16px" }}>
-          <div className="section-title">Serial Connection</div>
-          <div className="settings-form">
-            <div className="form-group">
-              <label className="form-label">Port</label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <select
-                  className="form-select"
-                  style={{ flex: 1 }}
-                  value={selectedPort}
-                  onChange={e => setSelectedPort(e.target.value)}
-                >
-                  <option value="">-- Select port --</option>
-                  {ports.map(p => (
-                    <option key={p.port} value={p.port}>
-                      {p.port} — {p.description}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  className="btn-primary"
-                  style={{ padding: "8px 12px", fontSize: 11 }}
-                  onClick={loadPorts}
-                >
-                  Refresh
-                </button>
-              </div>
+          <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+            <div className="section-label">Endpoints</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}>
+              <span>REST  → http://localhost:8000/api</span>
+              <span>WS    → ws://localhost:8000/ws/telemetry</span>
+              <span>Docs  → http://localhost:8000/docs</span>
             </div>
-
-            <div className="form-group">
-              <label className="form-label">Baud Rate</label>
-              <select className="form-select" value={baud} onChange={e => setBaud(Number(e.target.value))}>
-                <option value={9600}>9600</option>
-                <option value={115200}>115200</option>
-                <option value={230400}>230400</option>
-              </select>
-            </div>
-
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn-primary" style={{ flex: 1 }} onClick={connect} disabled={loading}>
-                {loading ? "..." : "Connect"}
-              </button>
-              <button className="btn-danger" style={{ flex: 1 }} onClick={disconnect} disabled={loading}>
-                Disconnect
-              </button>
-            </div>
-
-            {message && (
-              <div style={{ fontSize: 11, color: "var(--text-secondary)", paddingTop: 4 }}>
-                {message}
-              </div>
-            )}
           </div>
         </div>
-
-        {/* Backend info */}
-        <div className="glass-card" style={{ padding: "14px 16px" }}>
-          <div className="section-title">Backend</div>
-          <div style={{ fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.8, fontFamily: "var(--font-mono)" }}>
-            <div>REST API: http://localhost:8000/api</div>
-            <div>WebSocket: ws://localhost:8000/ws/telemetry</div>
-            <div>Docs: http://localhost:8000/docs</div>
-          </div>
-        </div>
-
       </div>
     </div>
   );
 }
 
 function StatusRow({
-  icon, label, value, ok,
+  label, icon, value, ok,
 }: {
-  icon: React.ReactNode; label: string; value: string; ok: boolean;
+  label: string; icon?: React.ReactNode; value: string; ok: boolean;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-      <span style={{ color: ok ? "var(--green)" : "var(--text-muted)" }}>{icon}</span>
-      <span style={{ color: "var(--text-secondary)", minWidth: 90 }}>{label}</span>
-      <span style={{
-        color: ok ? "var(--green)" : "var(--text-secondary)",
-        fontFamily: "var(--font-mono)",
-        fontSize: 11,
-      }}>
-        {value}
-      </span>
+    <div className="status-row">
+      {icon && <span style={{ color: ok ? "var(--green)" : "var(--text-muted)" }}>{icon}</span>}
+      <span className="status-key">{label}</span>
+      <span className={`status-value ${ok ? "ok" : "err"}`}>{value}</span>
     </div>
   );
 }

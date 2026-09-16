@@ -4,130 +4,103 @@ interface TelemetryPanelProps {
   frame: TelemetryFrame | null;
 }
 
-interface TelItem {
-  label: string;
+interface Row {
+  key: string;
   value: string;
   unit?: string;
-  color?: string;
+  alarm?: "warn" | "danger" | "ok" | null;
+  wide?: boolean;
 }
 
-function TelRow({ label, value, unit, color }: TelItem) {
+function TelRow({ row }: { row: Row }) {
   return (
-    <div className="tel-item glass-card">
-      <div className="tel-label">{label}</div>
-      <div className="tel-value" style={color ? { color } : undefined}>
-        {value}
-        {unit && <span className="tel-unit">{unit}</span>}
+    <div className="tel-row">
+      <span className="tel-key">{row.key}</span>
+      <span className={`tel-val ${row.alarm ?? ""}`}>
+        {row.value}
+        {row.unit && <span style={{ fontSize: 9, marginLeft: 2, opacity: 0.55 }}>{row.unit}</span>}
+      </span>
+    </div>
+  );
+}
+
+function Section({ title, rows }: { title: string; rows: Row[] }) {
+  return (
+    <div className="tel-section">
+      <div className="tel-section-label">{title}</div>
+      <div className="tel-grid" style={{ gridTemplateColumns: "1fr" }}>
+        {rows.map(r => <TelRow key={r.key} row={r} />)}
       </div>
     </div>
   );
 }
 
-/**
- * Left-side telemetry panel — all sensor readings in a scrollable list.
- */
-export function TelemetryPanel({ frame }: TelemetryPanelProps) {
-  const f = frame;
+const fmt = (v: number, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : "--");
 
-  const alarmColor = (lvl: number) => {
-    if (lvl === 0) return "var(--green)";
-    if (lvl === 1) return "var(--amber)";
-    return "var(--red)";
+export function TelemetryPanel({ frame: f }: TelemetryPanelProps) {
+  const pct = f?.loadPercent ?? 0;
+  const roll = f?.imuRoll ?? 0;
+  const pitch = f?.imuPitch ?? 0;
+
+  const loadAlarm = (pct: number): "ok" | "warn" | "danger" => {
+    if (pct >= 100) return "danger";
+    if (pct >= 80)  return "warn";
+    return "ok";
   };
 
-  const alarmLabel = (lvl: number) => {
-    return ["OK", "WARNING", "CRITICAL", "E-STOP"][lvl] ?? "--";
+  const imuAlarm = (deg: number): "warn" | "danger" | null => {
+    const a = Math.abs(deg);
+    if (a > 8) return "danger";
+    if (a > 3) return "warn";
+    return null;
   };
 
-  const rows: TelItem[] = [
-    {
-      label: "Boom Angle",
-      value: f ? f.boomAngle.toFixed(2) : "--",
-      unit: "°",
-    },
-    {
-      label: "Swing Angle",
-      value: f ? f.swingAngle.toFixed(2) : "--",
-      unit: "°",
-    },
-    {
-      label: "Extension",
-      value: f ? f.extensionMM.toFixed(1) : "--",
-      unit: "mm",
-    },
-    {
-      label: "Rope Length",
-      value: f ? f.ropeLength.toFixed(1) : "--",
-      unit: "mm",
-    },
-    {
-      label: "Measured Load",
-      value: f ? f.measuredLoad.toFixed(2) : "--",
-      unit: "kg",
-    },
-    {
-      label: "Actual Load",
-      value: f ? f.actualLoad.toFixed(2) : "--",
-      unit: "kg",
-      color: f && f.loadPercent > 85 ? "var(--red)" : undefined,
-    },
-    {
-      label: "Safe Limit",
-      value: f ? f.safeLoadLimit.toFixed(2) : "--",
-      unit: "kg",
-    },
-    {
-      label: "Load %",
-      value: f ? f.loadPercent.toFixed(1) : "--",
-      unit: "%",
-      color: f
-        ? f.loadPercent >= 100
-          ? "var(--red)"
-          : f.loadPercent >= 80
-          ? "var(--amber)"
-          : "var(--green)"
-        : undefined,
-    },
-    {
-      label: "IMU Roll",
-      value: f ? f.imuRoll.toFixed(2) : "--",
-      unit: "°",
-      color: f && Math.abs(f.imuRoll) > 5 ? "var(--amber)" : undefined,
-    },
-    {
-      label: "IMU Pitch",
-      value: f ? f.imuPitch.toFixed(2) : "--",
-      unit: "°",
-      color: f && Math.abs(f.imuPitch) > 5 ? "var(--amber)" : undefined,
-    },
-    {
-      label: "FSR FL",
-      value: f ? String(f.fsr[0]) : "--",
-    },
-    {
-      label: "FSR FR",
-      value: f ? String(f.fsr[1]) : "--",
-    },
-    {
-      label: "FSR RL",
-      value: f ? String(f.fsr[2]) : "--",
-    },
-    {
-      label: "FSR RR",
-      value: f ? String(f.fsr[3]) : "--",
-    },
-    {
-      label: "Alarm",
-      value: f ? alarmLabel(f.alarmLevel) : "--",
-      color: f ? alarmColor(f.alarmLevel) : undefined,
-    },
-  ];
+  const pctFill = Math.min(pct, 100);
+  const pctColor = pct >= 100 ? "#FF3B3B" : pct >= 80 ? "#F5A623" : "#00D68F";
 
   return (
-    <div className="telemetry-panel scroll-y">
-      {rows.map(row => (
-        <TelRow key={row.label} {...row} />
-      ))}
+    <div className="panel" style={{ height: "100%" }}>
+      <div className="panel-header">
+        <span className="ph-icon">◈</span>
+        Telemetry
+      </div>
+      <div className="panel-body">
+
+        {/* GEOMETRY */}
+        <Section title="Geometry" rows={[
+          { key: "Boom Angle",   value: fmt(f?.boomAngle   ?? 0), unit: "°" },
+          { key: "Swing Angle",  value: fmt(f?.swingAngle  ?? 0), unit: "°" },
+          { key: "Extension",    value: fmt(f?.extensionMM ?? 0, 1), unit: "mm" },
+          { key: "Rope Length",  value: fmt(f?.ropeLength  ?? 0, 1), unit: "mm" },
+        ]} />
+
+        {/* LOAD */}
+        <div className="tel-section">
+          <div className="tel-section-label">Load</div>
+          <div className="tel-grid" style={{ gridTemplateColumns: "1fr" }}>
+            <TelRow row={{ key: "Measured", value: fmt(f?.measuredLoad ?? 0, 3), unit: "kg" }} />
+            <TelRow row={{ key: "Actual (comp.)", value: fmt(f?.actualLoad ?? 0, 3), unit: "kg", alarm: loadAlarm(pct) }} />
+            <TelRow row={{ key: "Safe Limit", value: fmt(f?.safeLoadLimit ?? 0, 2), unit: "kg" }} />
+            <TelRow row={{ key: "Load %", value: fmt(pct, 1), unit: "%", alarm: loadAlarm(pct) }} />
+          </div>
+          {/* Load bar */}
+          <div className="load-bar-wrap">
+            <div className="load-bar-bg" style={{ marginTop: 5 }}>
+              <div
+                className="load-bar-fill"
+                style={{ width: `${pctFill}%`, background: pctColor }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* IMU */}
+        <Section title="IMU / Orientation" rows={[
+          { key: "Roll",  value: fmt(roll,  2), unit: "°", alarm: imuAlarm(roll)  ?? undefined },
+          { key: "Pitch", value: fmt(pitch, 2), unit: "°", alarm: imuAlarm(pitch) ?? undefined },
+        ]} />
+
+      </div>
     </div>
   );
 }

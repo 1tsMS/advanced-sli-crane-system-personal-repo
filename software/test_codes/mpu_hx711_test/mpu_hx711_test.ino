@@ -4,8 +4,8 @@
 #include <Adafruit_Sensor.h>
 
 // ---------------- HX711 ----------------
-#define HX711_DT 16
-#define HX711_SCK 17
+#define HX711_DT 17
+#define HX711_SCK 16
 
 HX711 scale;
 

@@ -1,22 +1,33 @@
 // ============================================================
-//  MPU6050 Driver — Implementation
+//  MPU6050 Driver — Implementation (Wire / Bus 0)
 // ============================================================
 #include "mpu6050_driver.h"
-#include "soft_i2c.h"
 
 bool MPU6050Driver::begin() {
-    // Wake up MPU6050 (clear sleep bit in PWR_MGMT_1)
+    // Wake up MPU6050 (clears sleep bit)
     if (!writeRegister(REG_PWR_MGMT_1, 0x00)) {
         _connected = false;
         return false;
     }
-    delay(100);  // Startup time
+    delay(100);
 
-    // Set gyro range to ±250°/s (GYRO_SCALE = 131 LSB/(°/s))
-    writeRegister(REG_GYRO_CONFIG, 0x00);
+    // Gyro range: ±500°/s → register 0x01 (bits [4:3] = 01)
+    // This matches test code: MPU6050_RANGE_500_DEG
+    if (!writeRegister(REG_GYRO_CONFIG, 0x08)) {
+        _connected = false;
+        return false;
+    }
 
-    // Set accel range to ±2g (ACCEL_SCALE = 16384 LSB/g)
-    writeRegister(REG_ACCEL_CONFIG, 0x00);
+    // Accel range: ±8g → register 0x10 (bits [4:3] = 10)
+    // This matches test code: MPU6050_RANGE_8_G
+    if (!writeRegister(REG_ACCEL_CONFIG, 0x10)) {
+        _connected = false;
+        return false;
+    }
+
+    // DLPF: 21 Hz bandwidth → register value 0x04
+    // This matches test code: MPU6050_BAND_21_HZ
+    writeRegister(REG_CONFIG, 0x04);
 
     _lastUpdateUs = micros();
     _connected = true;
@@ -26,50 +37,54 @@ bool MPU6050Driver::begin() {
 void MPU6050Driver::update() {
     if (!_connected) return;
 
-    // Read 14 bytes starting at ACCEL_XOUT_H
-    // Layout: AccX(2) AccY(2) AccZ(2) Temp(2) GyroX(2) GyroY(2) GyroZ(2)
+    // Read 14 bytes: AccX(2) AccY(2) AccZ(2) Temp(2) GyroX(2) GyroY(2) GyroZ(2)
     uint8_t buf[14];
-    if (!readBytes(REG_ACCEL_XOUT, buf, 14)) {
+    if (!readBytes(REG_ACCEL_XOUT_H, buf, 14)) {
         _connected = false;
         return;
     }
 
-    // Parse raw 16-bit signed values (big-endian)
-    int16_t rawAccX  = (buf[0]  << 8) | buf[1];
-    int16_t rawAccY  = (buf[2]  << 8) | buf[3];
-    int16_t rawAccZ  = (buf[4]  << 8) | buf[5];
-    // buf[6..7] = temperature (unused)
-    int16_t rawGyroX = (buf[8]  << 8) | buf[9];
-    int16_t rawGyroY = (buf[10] << 8) | buf[11];
-    int16_t rawGyroZ = (buf[12] << 8) | buf[13];
+    // Parse raw 16-bit signed big-endian values
+    int16_t rawAccX  = (int16_t)((buf[0]  << 8) | buf[1]);
+    int16_t rawAccY  = (int16_t)((buf[2]  << 8) | buf[3]);
+    int16_t rawAccZ  = (int16_t)((buf[4]  << 8) | buf[5]);
+    // buf[6..7] = temperature (skipped)
+    int16_t rawGyroX = (int16_t)((buf[8]  << 8) | buf[9]);
+    int16_t rawGyroY = (int16_t)((buf[10] << 8) | buf[11]);
+    int16_t rawGyroZ = (int16_t)((buf[12] << 8) | buf[13]);
 
     // Convert to physical units
+    // Accel: LSB → g → m/s²
     _accelX = (rawAccX / ACCEL_SCALE) * G_TO_MS2;
     _accelY = (rawAccY / ACCEL_SCALE) * G_TO_MS2;
     _accelZ = (rawAccZ / ACCEL_SCALE) * G_TO_MS2;
 
-    _gyroX = (rawGyroX / GYRO_SCALE) - _gyroOffsetX;  // °/s, offset-corrected
+    // Gyro: LSB → °/s, subtract calibration offset
+    _gyroX = (rawGyroX / GYRO_SCALE) - _gyroOffsetX;
     _gyroY = (rawGyroY / GYRO_SCALE) - _gyroOffsetY;
     _gyroZ = (rawGyroZ / GYRO_SCALE) - _gyroOffsetZ;
 
-    // Compute dt in seconds
+    // Compute dt
     unsigned long now = micros();
     float dt = (now - _lastUpdateUs) / 1000000.0f;
     _lastUpdateUs = now;
+    if (dt <= 0.0f || dt > 0.1f) dt = 0.01f;
 
-    // Clamp dt to avoid spikes after long pauses
-    if (dt > 0.1f) dt = 0.01f;
+    // Apply axis remapping before filter
+    float rollAccelSrc  = _remappedAccel(_accelX, _accelY, _accelZ, _axisMap.roll_src,  _axisMap.roll_inv);
+    float pitchAccelSrc = _remappedAccel(_accelX, _accelY, _accelZ, _axisMap.pitch_src, _axisMap.pitch_inv);
+    float rollGyroSrc   = _remappedGyro(_gyroX,  _gyroY,  _gyroZ,  _axisMap.roll_src,  _axisMap.roll_inv);
+    float pitchGyroSrc  = _remappedGyro(_gyroX,  _gyroY,  _gyroZ,  _axisMap.pitch_src, _axisMap.pitch_inv);
 
-    // Accelerometer-based angle estimates (noisy but no drift)
-    // atan2 gives angle of gravity vector
+    // Accelerometer-based angle (noisy, no drift)
     float accelRoll  = atan2(_accelY, _accelZ) * 180.0f / PI;
-    float accelPitch = atan2(-_accelX, sqrt(_accelY * _accelY + _accelZ * _accelZ)) * 180.0f / PI;
+    float accelPitch = atan2(-_accelX, sqrtf(_accelY * _accelY + _accelZ * _accelZ)) * 180.0f / PI;
 
-    // Complementary filter:
-    //   Fuse gyro integration (smooth, drifts) with accel angle (noisy, no drift)
-    //   α = 0.98 means we trust the gyro 98% and correct drift with accel 2%
-    _roll  = ALPHA * (_roll  + _gyroX * dt) + (1.0f - ALPHA) * accelRoll;
-    _pitch = ALPHA * (_pitch + _gyroY * dt) + (1.0f - ALPHA) * accelPitch;
+    // Complementary filter: trust gyro 98%, correct drift with accel 2%
+    _roll  = ALPHA * (_roll  + rollGyroSrc  * dt) + (1.0f - ALPHA) * accelRoll;
+    _pitch = ALPHA * (_pitch + pitchGyroSrc * dt) + (1.0f - ALPHA) * accelPitch;
+
+    (void)rollAccelSrc; (void)pitchAccelSrc;  // Suppress unused warning
 }
 
 void MPU6050Driver::calibrateGyro(uint16_t samples) {
@@ -79,49 +94,63 @@ void MPU6050Driver::calibrateGyro(uint16_t samples) {
     uint8_t buf[14];
 
     for (uint16_t i = 0; i < samples; i++) {
-        if (readBytes(REG_ACCEL_XOUT, buf, 14)) {
-            int16_t rawGyroX = (buf[8]  << 8) | buf[9];
-            int16_t rawGyroY = (buf[10] << 8) | buf[11];
-            int16_t rawGyroZ = (buf[12] << 8) | buf[13];
-            sumX += rawGyroX / GYRO_SCALE;
-            sumY += rawGyroY / GYRO_SCALE;
-            sumZ += rawGyroZ / GYRO_SCALE;
+        if (readBytes(REG_ACCEL_XOUT_H, buf, 14)) {
+            sumX += (int16_t)((buf[8]  << 8) | buf[9])  / GYRO_SCALE;
+            sumY += (int16_t)((buf[10] << 8) | buf[11]) / GYRO_SCALE;
+            sumZ += (int16_t)((buf[12] << 8) | buf[13]) / GYRO_SCALE;
         }
-        delay(2);  // ~500Hz sampling during calibration
+        delay(2);
     }
-
     _gyroOffsetX = sumX / samples;
     _gyroOffsetY = sumY / samples;
     _gyroOffsetZ = sumZ / samples;
 
-    // Reset filtered angles after calibration
     _roll = 0.0f;
     _pitch = 0.0f;
     _lastUpdateUs = micros();
 }
 
-// ---- I2C Helpers (via SoftI2C) ----
+// ---- Wire I2C Helpers ----
 
 bool MPU6050Driver::writeRegister(uint8_t reg, uint8_t value) {
-    if (!_bus) return false;
-    _bus->beginTransmission(MPU6050_ADDR);
-    _bus->write(reg);
-    _bus->write(value);
-    _bus->endTransmission();
-    return true;  // SoftI2C doesn't return error codes easily, assume success
+    Wire.beginTransmission(MPU6050_ADDR);
+    Wire.write(reg);
+    Wire.write(value);
+    return (Wire.endTransmission() == 0);
 }
 
 bool MPU6050Driver::readBytes(uint8_t reg, uint8_t* buffer, uint8_t count) {
-    if (!_bus) return false;
-    _bus->beginTransmission(MPU6050_ADDR);
-    _bus->write(reg);
-    _bus->endTransmission();
+    Wire.beginTransmission(MPU6050_ADDR);
+    Wire.write(reg);
+    if (Wire.endTransmission(false) != 0) return false;  // Repeated start
 
-    uint8_t received = _bus->requestFrom(MPU6050_ADDR, count);
-    if (received < count) return false;
+    Wire.requestFrom((uint8_t)MPU6050_ADDR, count);
+    if (Wire.available() < count) return false;
 
     for (uint8_t i = 0; i < count; i++) {
-        buffer[i] = _bus->read();
+        buffer[i] = Wire.read();
     }
     return true;
+}
+
+// ---- Axis remapping helpers ----
+
+float MPU6050Driver::_remappedAccel(float ax, float ay, float az, int8_t src, bool inv) const {
+    float val;
+    switch (src) {
+        case 0: val = ax; break;
+        case 1: val = ay; break;
+        default: val = az; break;
+    }
+    return inv ? -val : val;
+}
+
+float MPU6050Driver::_remappedGyro(float gx, float gy, float gz, int8_t src, bool inv) const {
+    float val;
+    switch (src) {
+        case 0: val = gx; break;
+        case 1: val = gy; break;
+        default: val = gz; break;
+    }
+    return inv ? -val : val;
 }

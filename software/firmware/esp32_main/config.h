@@ -9,7 +9,8 @@
 #include <Arduino.h>
 
 // ======================== I2C BUS PINS ========================
-// Bus 0: Hardware Wire — AS5600 Swing Encoder
+// Bus 0: Hardware Wire — MPU6050 + AS5600 Swing Encoder
+// MPU6050 confirmed working on GPIO21/22 from mpu_hx711_test.ino
 #define I2C0_SDA  21
 #define I2C0_SCL  22
 
@@ -17,7 +18,8 @@
 #define I2C1_SDA  25
 #define I2C1_SCL  26
 
-// Bus 2: Software bit-bang — AS5600 Telescope + MPU6050
+// Bus 2: Software bit-bang — AS5600 Telescope only
+// MPU6050 moved to Bus 0 (confirmed working there)
 #define I2C2_SDA  32
 #define I2C2_SCL  33
 
@@ -26,8 +28,9 @@
 #define MPU6050_ADDR  0x68
 
 // ======================== HX711 LOAD CELL ========================
-#define HX711_DT_PIN   4
-#define HX711_SCK_PIN  27
+// Pins confirmed from mpu_hx711_test.ino
+#define HX711_DT_PIN   17
+#define HX711_SCK_PIN  16
 
 // ======================== FSR ANALOG PINS ========================
 // ADC1 input-only pins — outrigger force sensors

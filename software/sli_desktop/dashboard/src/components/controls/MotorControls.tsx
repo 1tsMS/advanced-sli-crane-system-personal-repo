@@ -1,24 +1,16 @@
 import { useCallback, useState, useEffect } from "react";
-import {
-  ArrowLeft, ArrowRight,
-  ChevronsUp, ChevronsDown, Gamepad2, Square
-} from "lucide-react";
+import { Square, Gamepad2 } from "lucide-react";
 
 const API_BASE = "http://localhost:8000/api";
 
 type AxisId = 1 | 2 | 3 | 4;
 
-const AXES = [
-  { id: 1 as AxisId, name: "Swing",     icon: "↔", units: "°" },
-  { id: 2 as AxisId, name: "Boom Lift", icon: "↕", units: "°" },
-  { id: 3 as AxisId, name: "Telescope", icon: "↔", units: "mm" },
-  { id: 4 as AxisId, name: "Winch",     icon: "⇅", units: "mm" },
+const AXES: { id: AxisId; name: string; negLabel: string; posLabel: string }[] = [
+  { id: 1, name: "Swing",    negLabel: "◄", posLabel: "►" },
+  { id: 2, name: "Boom",     negLabel: "▼", posLabel: "▲" },
+  { id: 3, name: "Extend",   negLabel: "◄", posLabel: "►" },
+  { id: 4, name: "Winch",    negLabel: "▼", posLabel: "▲" },
 ];
-
-interface MotorControlsProps {
-  speed: number;
-  onSpeedChange: (s: number) => void;
-}
 
 async function apiPost(path: string, body: object) {
   try {
@@ -28,43 +20,41 @@ async function apiPost(path: string, body: object) {
       body: JSON.stringify(body),
     });
     return res.ok;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
+}
+
+interface MotorControlsProps {
+  speed: number;
+  onSpeedChange: (s: number) => void;
 }
 
 export function MotorControls({ speed, onSpeedChange }: MotorControlsProps) {
   const [pressed, setPressed] = useState<Record<string, boolean>>({});
-  const [gamepadConnected, setGamepadConnected] = useState(false);
+  const [gpConnected, setGpConnected] = useState(false);
 
-  // Gamepad detection
   useEffect(() => {
-    const onConnect    = () => setGamepadConnected(true);
-    const onDisconnect = () => setGamepadConnected(false);
-    window.addEventListener("gamepadconnected", onConnect);
-    window.addEventListener("gamepaddisconnected", onDisconnect);
+    const on  = () => setGpConnected(true);
+    const off = () => setGpConnected(false);
+    window.addEventListener("gamepadconnected", on);
+    window.addEventListener("gamepaddisconnected", off);
     return () => {
-      window.removeEventListener("gamepadconnected", onConnect);
-      window.removeEventListener("gamepaddisconnected", onDisconnect);
+      window.removeEventListener("gamepadconnected", on);
+      window.removeEventListener("gamepaddisconnected", off);
     };
   }, []);
 
-  const startMotor = useCallback(
-    async (axis: AxisId, direction: 0 | 1) => {
-      const key = `${axis}-${direction}`;
-      if (pressed[key]) return;
-      setPressed(p => ({ ...p, [key]: true }));
-      await apiPost("/command", { command: `M${axis} S${speed} D${direction}` });
-    },
-    [speed, pressed]
-  );
+  const startMotor = useCallback(async (axis: AxisId, dir: 0 | 1) => {
+    const key = `${axis}-${dir}`;
+    if (pressed[key]) return;
+    setPressed(p => ({ ...p, [key]: true }));
+    await apiPost("/command", { command: `M${axis} S${speed} D${dir}` });
+  }, [speed, pressed]);
 
   const stopAxis = useCallback(async (axis: AxisId) => {
     setPressed(p => {
-      const next = { ...p };
-      delete next[`${axis}-0`];
-      delete next[`${axis}-1`];
-      return next;
+      const n = { ...p };
+      delete n[`${axis}-0`]; delete n[`${axis}-1`];
+      return n;
     });
     await apiPost("/command", { command: `M0 A${axis}` });
   }, []);
@@ -75,83 +65,75 @@ export function MotorControls({ speed, onSpeedChange }: MotorControlsProps) {
   }, []);
 
   return (
-    <div className="controls-panel scroll-y">
-      <h3>Motor Controls</h3>
+    <div className="panel" style={{ height: "100%" }}>
+      <div className="panel-header">
+        <span className="ph-icon">⊕</span>
+        Motor Controls
+      </div>
 
-      {AXES.map(axis => (
-        <div className="axis-control glass-card" key={axis.id} style={{ padding: "10px" }}>
-          <div className="axis-label">
-            <span style={{ color: "var(--cyan)", fontSize: "10px", fontFamily: "var(--font-mono)" }}>
-              M{axis.id}
-            </span>
-            {axis.name}
+      {/* 2×2 axis grid */}
+      <div className="axes-grid">
+        {AXES.map(ax => (
+          <div className="axis-card" key={ax.id}>
+            <div className="axis-name">
+              {ax.name}
+              <span className="axis-id">M{ax.id}</span>
+            </div>
+            <div className="axis-btns">
+              <button
+                className={`mtr-btn ${pressed[`${ax.id}-0`] ? "pressed" : ""}`}
+                onMouseDown={() => startMotor(ax.id, 0)}
+                onMouseUp={() => stopAxis(ax.id)}
+                onMouseLeave={() => { if (pressed[`${ax.id}-0`]) stopAxis(ax.id); }}
+                onTouchStart={e => { e.preventDefault(); startMotor(ax.id, 0); }}
+                onTouchEnd={() => stopAxis(ax.id)}
+              >
+                {ax.negLabel}
+              </button>
+              <button
+                className="mtr-btn stop"
+                title="Stop"
+                onClick={() => stopAxis(ax.id)}
+              >
+                <Square size={9} />
+              </button>
+              <button
+                className={`mtr-btn ${pressed[`${ax.id}-1`] ? "pressed" : ""}`}
+                onMouseDown={() => startMotor(ax.id, 1)}
+                onMouseUp={() => stopAxis(ax.id)}
+                onMouseLeave={() => { if (pressed[`${ax.id}-1`]) stopAxis(ax.id); }}
+                onTouchStart={e => { e.preventDefault(); startMotor(ax.id, 1); }}
+                onTouchEnd={() => stopAxis(ax.id)}
+              >
+                {ax.posLabel}
+              </button>
+            </div>
           </div>
-          <div className="axis-buttons">
-            <button
-              className={`motor-btn ${pressed[`${axis.id}-0`] ? "pressed" : ""}`}
-              onMouseDown={() => startMotor(axis.id, 0)}
-              onMouseUp={() => stopAxis(axis.id)}
-              onMouseLeave={() => stopAxis(axis.id)}
-              onTouchStart={() => startMotor(axis.id, 0)}
-              onTouchEnd={() => stopAxis(axis.id)}
-              title={`${axis.name} Direction 0`}
-            >
-              {axis.id === 4 ? <ChevronsUp size={16} /> : <ArrowLeft size={16} />}
-            </button>
-            <button
-              className="motor-btn"
-              style={{ flex: "0 0 32px", color: "var(--text-muted)" }}
-              onClick={() => stopAxis(axis.id)}
-              title="Stop axis"
-            >
-              <Square size={12} />
-            </button>
-            <button
-              className={`motor-btn ${pressed[`${axis.id}-1`] ? "pressed" : ""}`}
-              onMouseDown={() => startMotor(axis.id, 1)}
-              onMouseUp={() => stopAxis(axis.id)}
-              onMouseLeave={() => stopAxis(axis.id)}
-              onTouchStart={() => startMotor(axis.id, 1)}
-              onTouchEnd={() => stopAxis(axis.id)}
-              title={`${axis.name} Direction 1`}
-            >
-              {axis.id === 4 ? <ChevronsDown size={16} /> : <ArrowRight size={16} />}
-            </button>
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
 
-      {/* Speed slider */}
-      <div className="speed-control glass-card" style={{ padding: "10px" }}>
-        <div className="axis-label" style={{ marginBottom: 6 }}>
-          Speed: <span style={{ fontFamily: "var(--font-mono)", color: "var(--cyan)" }}>{speed}</span>
-          <span style={{ color: "var(--text-muted)", fontSize: 10 }}>/255</span>
-        </div>
+      {/* Footer: speed + stop all + gamepad */}
+      <div className="controls-footer" style={{ flexWrap: "wrap", gap: 6 }}>
+        <span className="speed-label">
+          Speed: <span className="speed-val">{speed}</span>
+        </span>
         <input
-          type="range"
-          min={20}
-          max={255}
-          step={5}
+          type="range" min={20} max={255} step={5}
           value={speed}
           onChange={e => onSpeedChange(Number(e.target.value))}
           className="speed-slider"
-          style={{ width: "100%" }}
         />
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
-          <span>Slow</span>
-          <span>Fast</span>
-        </div>
+        <button className="stop-all-btn" onClick={stopAll}>
+          ■ Stop All
+        </button>
       </div>
 
-      {/* Stop All */}
-      <button className="btn-danger" style={{ width: "100%" }} onClick={stopAll}>
-        Stop All Axes
-      </button>
-
-      {/* Gamepad status */}
-      <div className="xbox-status">
-        <Gamepad2 size={14} style={{ color: gamepadConnected ? "var(--green)" : "var(--text-muted)" }} />
-        <span>{gamepadConnected ? "Controller connected" : "No controller detected"}</span>
+      {/* Gamepad indicator */}
+      <div style={{ padding: "0 8px 8px" }}>
+        <div className={`gp-badge ${gpConnected ? "live" : ""}`}>
+          <Gamepad2 size={12} />
+          {gpConnected ? "Controller active" : "No controller"}
+        </div>
       </div>
     </div>
   );
