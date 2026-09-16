@@ -1,0 +1,151 @@
+// ============================================================
+//  Advanced SLI — ESP32 Master Configuration
+//  All pin assignments, I2C addresses, timing constants,
+//  and shared data structures for the entire firmware.
+// ============================================================
+#ifndef SLI_CONFIG_H
+#define SLI_CONFIG_H
+
+#include <Arduino.h>
+
+// ======================== I2C BUS PINS ========================
+// Bus 0: Hardware Wire — AS5600 Swing Encoder
+#define I2C0_SDA  21
+#define I2C0_SCL  22
+
+// Bus 1: Hardware Wire1 — AS5600 Boom Lift Encoder
+#define I2C1_SDA  25
+#define I2C1_SCL  26
+
+// Bus 2: Software bit-bang — AS5600 Telescope + MPU6050
+#define I2C2_SDA  32
+#define I2C2_SCL  33
+
+// ======================== I2C ADDRESSES ========================
+#define AS5600_ADDR   0x36
+#define MPU6050_ADDR  0x68
+
+// ======================== HX711 LOAD CELL ========================
+#define HX711_DT_PIN   4
+#define HX711_SCK_PIN  27
+
+// ======================== FSR ANALOG PINS ========================
+// ADC1 input-only pins — outrigger force sensors
+#define FSR1_PIN  34
+#define FSR2_PIN  35
+#define FSR3_PIN  36
+#define FSR4_PIN  39
+
+// ======================== N20 WINCH VIA DRV8833 ========================
+#define DRV_AIN1  13   // PWM / direction
+#define DRV_AIN2  14   // PWM / direction
+#define DRV_STBY  12   // Standby (tie to 3.3V if always-on)
+
+// ======================== N20 QUADRATURE ENCODER ========================
+#define N20_ENC_A  18  // Interrupt-capable
+#define N20_ENC_B  19  // Interrupt-capable
+
+// ======================== UART2 TO ARDUINO MEGA ========================
+#define MEGA_TX_PIN  17   // ESP32 GPIO17 (TX2) → Mega Pin 19 (RX1)
+#define MEGA_RX_PIN  16   // ESP32 GPIO16 (RX2) → Mega Pin 18 (TX1)
+#define MEGA_BAUD    9600
+
+// ======================== USB SERIAL TO PC ========================
+#define USB_BAUD  115200
+
+// ======================== FREERTOS TASK CONFIG ========================
+// Sensor acquisition rate
+#define SENSOR_RATE_HZ       100
+#define SENSOR_PERIOD_MS     (1000 / SENSOR_RATE_HZ)
+
+// Telemetry push rate to PC
+#define TELEMETRY_RATE_HZ    50
+#define TELEMETRY_PERIOD_MS  (1000 / TELEMETRY_RATE_HZ)
+
+// Stack sizes (bytes) — increase if you see stack overflow crashes
+#define SENSOR_TASK_STACK     4096
+#define TELEMETRY_TASK_STACK  4096
+#define COMMAND_TASK_STACK    4096
+
+// Task priorities — higher number = higher priority
+#define SENSOR_TASK_PRIORITY     5   // Time-critical sensor reads
+#define COMMAND_TASK_PRIORITY    4   // Must respond to E-stop quickly
+#define TELEMETRY_TASK_PRIORITY  3   // Can tolerate slight delays
+
+// ======================== ENCODER CONVERSIONS ========================
+// N20 encoder: ticks per full drum revolution
+// 150RPM N20 with magnetic encoder typically has ~7 PPR × 4 (quadrature) × gear ratio
+// Adjust after measuring your actual encoder!
+#define N20_TICKS_PER_REV       840
+// Rope drum diameter in mm
+#define ROPE_DRUM_DIAMETER_MM   20.0f
+// Derived: mm of rope per encoder tick
+#define ROPE_MM_PER_TICK  ((PI * ROPE_DRUM_DIAMETER_MM) / N20_TICKS_PER_REV)
+
+// Telescope AS5600: mm of linear travel per full encoder revolution
+// Depends on your lead screw pitch / rack-pinion ratio — measure and adjust!
+#define TELE_MM_PER_REVOLUTION  8.0f
+
+// ======================== SHARED DATA STRUCTURES ========================
+
+/**
+ * Central sensor data struct — the single source of truth.
+ * Written by SensorTask, read by TelemetryTask (and SafetyTask in Phase 3).
+ * All access MUST be guarded by sensorMutex.
+ */
+struct SensorData {
+    // Angle values (degrees, 0.0–360.0)
+    float boomAngle;
+    float swingAngle;
+    float teleAngle;         // raw AS5600 angle for telescope
+
+    // Computed linear values
+    float extensionMM;       // telescope linear extension
+    float ropeLengthMM;      // rope payed out from N20 encoder
+
+    // Load
+    float loadCellRaw;       // kg — direct HX711 reading, NOT angle-compensated
+    float actualLoadKg;      // kg — boom-angle-compensated (Phase 3, 0.0 for now)
+
+    // IMU orientation (complementary-filtered)
+    float imuRoll;           // degrees
+    float imuPitch;          // degrees
+
+    // Outrigger force sensors (raw ADC 0–4095)
+    uint16_t fsr[4];
+
+    // Safety status (Phase 3 defaults)
+    float safeLoadLimit;     // kg — from load chart (default 5.0)
+    float loadPercent;       // (actualLoad / safeLimit) × 100
+    uint8_t alarmLevel;      // 0=OK, 1=WARN, 2=CRITICAL, 3=ESTOP
+
+    // System health
+    bool sensorsOK;          // true if all expected I2C devices respond
+};
+
+/**
+ * Motor command — parsed from G-code, forwarded to Mega or DRV8833.
+ */
+struct MotorCommand {
+    uint8_t  axis;       // 1=Swing, 2=Lift, 3=Tele, 4=Winch, 0=StopAxis
+    uint16_t speed;      // 0–255
+    uint8_t  direction;  // 0 or 1
+    uint8_t  stopAxis;   // which axis to stop (for M0 Ax commands)
+    bool     isEstop;    // true → emergency stop ALL motors
+};
+
+/**
+ * Calibration command types
+ */
+enum CalCommand : uint8_t {
+    CAL_TARE_LOAD   = 0,  // Zero the load cell
+    CAL_ZERO_IMU    = 1,  // Set current IMU orientation as zero
+    CAL_RESET_TELE  = 2   // Reset telescope extension to 0
+};
+
+// ======================== GLOBAL RTOS HANDLES ========================
+// Declared here, defined in esp32_main.ino
+extern SemaphoreHandle_t sensorMutex;
+extern QueueHandle_t     motorCommandQueue;
+
+#endif // SLI_CONFIG_H
