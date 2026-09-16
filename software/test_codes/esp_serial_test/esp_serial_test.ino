@@ -7,7 +7,7 @@ void setup() {
   Serial.begin(115200);  // ESP32 USB
   MegaSerial.begin(9600, SERIAL_8N1, RX2, TX2);
 
-  Serial.println("ESP32 ready");
+  Serial.println("ESP32 ready!");
 }
 
 void loop() {
