@@ -12,18 +12,21 @@
 //    Z-axis (Boom Lift): STEP=46, DIR=48, EN=62
 // ============================================================
 
+#include <Arduino.h>
+#include <ctype.h>
+
 // ======================== RAMPS 1.4 PIN DEFINITIONS ========================
 // X-axis: Swing
 #define SWING_STEP  54
 #define SWING_DIR   55
 #define SWING_EN    38
 
-// Y-axis: Telescope
+// Y-axis: Telescope (M3)
 #define TELE_STEP   60
 #define TELE_DIR    61
 #define TELE_EN     56
 
-// Z-axis: Boom Lift
+// Z-axis: Boom Lift (M2)
 #define LIFT_STEP   46
 #define LIFT_DIR    48
 #define LIFT_EN     62
@@ -136,17 +139,14 @@ void processCommand(const char* cmd) {
 
         int idx = axis - 1;  // Array index (0-based)
 
-        // Convert speed (0-255) to step delay in microseconds
-        // Speed 255 = fastest = 200µs delay
-        // Speed 1   = slowest = 5000µs delay
-        // Speed 0   = stop
+        // Convert speed (steps/sec) to step delay in microseconds
+        // e.g. Speed 500 = 2000µs delay (matches RAMPS_test.ino)
         if (speed == 0) {
             motors[idx].running = false;
             return;
         }
 
-        // Map: speed 1-255 → delay 5000-200µs (inverse relationship)
-        motors[idx].speed = map(speed, 1, 255, 5000, 200);
+        motors[idx].speed = 1000000UL / speed;
         motors[idx].direction = dir;
         motors[idx].running = true;
 
@@ -170,14 +170,16 @@ void emergencyStop() {
 
 // ======================== PARAMETER EXTRACTION ========================
 int extractParam(const char* line, char prefix, int defaultVal) {
+    char target = toupper(prefix);
     const char* p = line;
     while (*p) {
-        if (*p == prefix || *p == (prefix + 32) || *p == (prefix - 32)) {
+        if (toupper(*p) == target) {
             p++;
             while (*p == ' ') p++;
-            if (*p >= '0' && *p <= '9') return atoi(p);
+            if ((*p >= '0' && *p <= '9') || *p == '-') return atoi(p);
         }
         p++;
     }
     return defaultVal;
 }
+

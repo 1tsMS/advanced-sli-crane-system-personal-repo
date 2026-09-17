@@ -26,8 +26,8 @@ public:
     /** Probe the sensor. Returns true if it responds on I2C. */
     bool begin();
 
-    /** Is the sensor currently responding? */
-    bool isConnected() const { return _connected; }
+    /** Is the sensor currently responding? Re-probes if disconnected. */
+    bool isConnected();
 
     /**
      * Read angle in degrees (0.0–360.0), corrected by zero offset.
@@ -38,6 +38,9 @@ public:
     /** Read the raw 12-bit register value (0–4095). */
     uint16_t readRawAngle();
 
+    /** Read continuous angle in degrees, tracking multi-turn wraps. */
+    float readContinuousAngle();
+
     /** Set current position as zero. */
     void setZero();
 
@@ -47,6 +50,10 @@ private:
     bool      _connected;
     uint16_t  _offset;
     float     _lastAngle;
+    int32_t   _revolutions = 0;
+    bool      _isFirstRead = true;
+    uint16_t  _lastRawAngle = 0;
+    uint8_t   _missCount = 0;
 
     // Register addresses
     static const uint8_t REG_RAW_ANGLE = 0x0C;  // 12-bit raw angle (high + low)

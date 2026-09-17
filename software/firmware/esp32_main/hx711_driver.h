@@ -49,6 +49,9 @@ public:
     /** Get current zero offset. */
     long getOffset() { return _scale.get_offset(); }
 
+    /** Get the last read raw 24-bit ADC counts. */
+    int32_t getLastRaw() const { return _lastRawValue; }
+
     /** Access underlying bogde HX711 instance directly if needed. */
     HX711& getRawScale() { return _scale; }
 

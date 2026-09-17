@@ -1,12 +1,38 @@
 // ============================================================
-//  AS5600 Driver — Implementation
+//  AS5600 Driver — Implementation (Matches 3_AS5600_test.ino)
 // ============================================================
 #include "as5600_driver.h"
 #include "soft_i2c.h"
 
+bool AS5600Driver::isConnected() {
+    if (_connected) return true;
+    return begin();
+}
+
 bool AS5600Driver::begin() {
-    uint16_t testVal;
-    _connected = readRegister16(REG_RAW_ANGLE, &testVal);
+    // Probing mirrors detectAS5600 in 3_AS5600_test.ino with 3 retries
+    for (int retry = 0; retry < 3; retry++) {
+        switch (_busType) {
+            case BUS_WIRE0:
+                Wire.setClock(100000);
+                Wire.beginTransmission(AS5600_ADDR);
+                _connected = (Wire.endTransmission() == 0);
+                break;
+            case BUS_WIRE1:
+                Wire1.setClock(100000);
+                Wire1.beginTransmission(AS5600_ADDR);
+                _connected = (Wire1.endTransmission() == 0);
+                break;
+            case BUS_SOFT:
+                if (_softBus) {
+                    _connected = _softBus->beginTransmission(AS5600_ADDR);
+                    _softBus->endTransmission();
+                }
+                break;
+        }
+        if (_connected) break;
+        delay(5);
+    }
     return _connected;
 }
 
@@ -15,21 +41,51 @@ float AS5600Driver::readAngle() {
     // Apply zero offset correction
     int16_t corrected = (int16_t)raw - (int16_t)_offset;
     if (corrected < 0) corrected += 4096;
-    _lastAngle = (corrected / 4096.0f) * 360.0f;
-    return _lastAngle;
+    float currentAngle = (corrected / 4096.0f) * 360.0f;
+
+    if (_isFirstRead) {
+        _lastAngle = currentAngle;
+        _isFirstRead = false;
+        return currentAngle;
+    }
+
+    // Check for wraps
+    float delta = currentAngle - _lastAngle;
+    if (delta > 180.0f) {
+        _revolutions--;
+    } else if (delta < -180.0f) {
+        _revolutions++;
+    }
+
+    _lastAngle = currentAngle;
+    return currentAngle;
+}
+
+float AS5600Driver::readContinuousAngle() {
+    readAngle(); // Ensures state is updated
+    return (_revolutions * 360.0f) + _lastAngle;
 }
 
 uint16_t AS5600Driver::readRawAngle() {
     uint16_t value = 0;
-    if (!readRegister16(REG_RAW_ANGLE, &value)) {
-        _connected = false;
-        // Return based on last known angle to avoid jumps
+    if (readRegister16(REG_RAW_ANGLE, &value)) {
+        _lastRawAngle = value;
+        _missCount = 0;
+        _connected = true;
+        return value;
+    } else {
+        if (++_missCount > 30) {
+            _connected = false;
+        }
+        return _lastRawAngle;
     }
-    return value;
 }
 
 void AS5600Driver::setZero() {
     _offset = readRawAngle();
+    _revolutions = 0;
+    _isFirstRead = true;
+    _lastAngle = 0.0f;
 }
 
 bool AS5600Driver::readRegister16(uint8_t reg, uint16_t* outValue) {
@@ -38,23 +94,29 @@ bool AS5600Driver::readRegister16(uint8_t reg, uint16_t* outValue) {
 
     switch (_busType) {
         case BUS_WIRE0: {
+            Wire.setClock(100000);  // Ensure Wire stays at 100kHz
             Wire.beginTransmission(AS5600_ADDR);
             Wire.write(reg);
-            if (Wire.endTransmission() != 0) return false;
-            Wire.requestFrom((uint8_t)AS5600_ADDR, (uint8_t)2);
-            if (Wire.available() < 2) return false;
-            *outValue = ((uint16_t)Wire.read() << 8) | Wire.read();
+            uint8_t err = Wire.endTransmission(false);  // Repeated start
+            if (err != 0) {
+                // If repeated start was NACKed on shared bus, fallback to stop condition
+                Wire.beginTransmission(AS5600_ADDR);
+                Wire.write(reg);
+                if (Wire.endTransmission(true) != 0) return false;
+            }
+            if (Wire.requestFrom((uint8_t)AS5600_ADDR, (uint8_t)2) != 2) return false;
+            *outValue = (((uint16_t)Wire.read() << 8) | Wire.read()) & 0x0FFF;
             _connected = true;
             return true;
         }
 
         case BUS_WIRE1: {
+            Wire1.setClock(100000);
             Wire1.beginTransmission(AS5600_ADDR);
             Wire1.write(reg);
-            if (Wire1.endTransmission() != 0) return false;
-            Wire1.requestFrom((uint8_t)AS5600_ADDR, (uint8_t)2);
-            if (Wire1.available() < 2) return false;
-            *outValue = ((uint16_t)Wire1.read() << 8) | Wire1.read();
+            if (Wire1.endTransmission(false) != 0) return false; // Repeated start
+            if (Wire1.requestFrom((uint8_t)AS5600_ADDR, (uint8_t)2) != 2) return false;
+            *outValue = (((uint16_t)Wire1.read() << 8) | Wire1.read()) & 0x0FFF;
             _connected = true;
             return true;
         }
@@ -65,7 +127,7 @@ bool AS5600Driver::readRegister16(uint8_t reg, uint16_t* outValue) {
             _softBus->write(reg);
             _softBus->endTransmission();
             if (_softBus->requestFrom(AS5600_ADDR, (uint8_t)2) < 2) return false;
-            *outValue = ((uint16_t)_softBus->read() << 8) | _softBus->read();
+            *outValue = (((uint16_t)_softBus->read() << 8) | _softBus->read()) & 0x0FFF;
             _connected = true;
             return true;
         }

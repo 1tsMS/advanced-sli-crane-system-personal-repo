@@ -52,6 +52,10 @@ struct ParsedCommand {
     MotorCommand motor;       // Filled for CMD_MOTOR / CMD_STOP_AXIS / CMD_ESTOP
     CalCommand   calType;     // Filled for CMD_CALIBRATE
     uint16_t     configRate;  // Filled for CMD_CONFIG (telemetry rate Hz)
+    int8_t       boomAxis;    // Filled for CAL_ZERO_IMU (0=X, 1=Y, 2=Z)
+    int8_t       boomInv;     // 0 or 1
+    int8_t       tiltAxis;    // 0=X, 1=Y, 2=Z
+    int8_t       tiltInv;     // 0 or 1
 };
 
 class GCodeParser {

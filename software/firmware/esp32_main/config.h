@@ -29,8 +29,12 @@
 
 // ======================== HX711 LOAD CELL ========================
 // Pins confirmed from mpu_hx711_test.ino
-#define HX711_DT_PIN   17
-#define HX711_SCK_PIN  16
+#define HX711_DT_PIN         17
+#define HX711_SCK_PIN        16
+// Default calibration factor (counts per kg) from software/test_codes/loadcell_approx/loadcell_approx.ino
+#define HX711_DEFAULT_SCALE  122000.0f
+// Plausible load ceiling for a 5kg model crane (beyond this = uncalibrated or overload error)
+#define MAX_VALID_LOAD_KG    10.0f
 
 // ======================== FSR ANALOG PINS ========================
 // ADC1 input-only pins — outrigger force sensors

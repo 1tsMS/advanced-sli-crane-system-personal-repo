@@ -5,11 +5,16 @@
 
 void HX711Driver::begin() {
     _scale.begin(_dt, _sck);
-    _scale.set_scale(1.0f);  // Default: 1.0 (uncalibrated / 1:1)
+    _scale.set_scale(HX711_DEFAULT_SCALE);
 
     // Give HX711 chip time to settle on power up
-    delay(100);
+    delay(500);
     _connected = _scale.is_ready();
+
+    if (_connected) {
+        // Tare 20 samples for stable zero offset (matches loadcell_approx.ino)
+        _scale.tare(20);
+    }
 }
 
 bool HX711Driver::readRaw(int32_t* value) {
@@ -25,8 +30,18 @@ bool HX711Driver::readRaw(int32_t* value) {
 
 float HX711Driver::getWeight() {
     if (_scale.is_ready()) {
-        // get_units(1) applies (raw - offset) / scale without blocking
-        _lastWeight = _scale.get_units(1);
+        _lastRawValue = _scale.read();  // Read raw count directly
+        float w = _scale.get_units(1);
+
+        // Deadband: eliminate sensor noise near zero (matches loadcell_approx.ino)
+        if (w > -0.02f && w < 0.02f) {
+            w = 0.0f;
+        }
+        if (w < 0.0f) {
+            w = 0.0f;
+        }
+
+        _lastWeight = w;
         _connected = true;
     }
     return _lastWeight;

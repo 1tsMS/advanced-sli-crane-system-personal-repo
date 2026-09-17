@@ -60,34 +60,41 @@ void setup() {
     Serial.println("\n=== Advanced SLI ESP32 Starting ===");
 
     // --- Initialize I2C Buses ---
-    Serial.print("Init I2C Bus 0 (Swing)... ");
+    // 100kHz standard mode ensures reliable signal integrity with breadboards/crane wiring
+    Serial.print("Init I2C Bus 0 (Wire 21/22)... ");
     Wire.begin(I2C0_SDA, I2C0_SCL);
-    Wire.setClock(400000);  // 400kHz Fast Mode
+    Wire.setClock(100000);
+    Wire.setTimeOut(50);
     Serial.println("OK");
 
-    Serial.print("Init I2C Bus 1 (Boom)... ");
+    Serial.print("Init I2C Bus 1 (Wire1 25/26)... ");
     Wire1.begin(I2C1_SDA, I2C1_SCL);
-    Wire1.setClock(400000);
+    Wire1.setClock(100000);
+    Wire1.setTimeOut(50);
     Serial.println("OK");
 
-    Serial.print("Init I2C Bus 2 (Tele, Software)... ");
+    Serial.print("Init I2C Bus 2 (SoftI2C 32/33)... ");
     softI2C.begin();
     Serial.println("OK");
 
     // --- Initialize Sensors ---
-    Serial.print("AS5600 Swing:  ");
+    // Encoders initialized first to ensure clean I2C probe before high-rate IMU traffic
+    Serial.print("AS5600 Swing (21/22): ");
     Serial.println(swingEncoder.begin() ? "DETECTED" : "NOT FOUND");
 
-    Serial.print("AS5600 Boom:   ");
+    Serial.print("AS5600 Boom (25/26):  ");
     Serial.println(boomEncoder.begin() ? "DETECTED" : "NOT FOUND");
 
-    Serial.print("AS5600 Tele:   ");
+    Serial.print("AS5600 Tele (32/33):  ");
     Serial.println(teleEncoder.begin() ? "DETECTED" : "NOT FOUND");
 
-    Serial.print("MPU6050 IMU:   ");
+    // Initialize MPU6050 on Wire (Bus 0)
+    Serial.print("MPU6050 IMU (21/22):  ");
     if (imu.begin()) {
+        Wire.setClock(100000);
         Serial.println("DETECTED — Calibrating gyro (keep still)...");
         imu.calibrateGyro(200);  // Quick calibration on startup
+        Wire.setClock(100000);
         Serial.println("  Gyro calibrated.");
     } else {
         Serial.println("NOT FOUND");
@@ -129,6 +136,7 @@ void setup() {
         &swingEncoder, &boomEncoder, &teleEncoder,
         &imu, &loadCell, &fsrReader, &winchEncoder
     );
+    sensorTask_loadCalibration();  // Restore zero offsets and axis config from flash
 
     commandTask_init(
         &megaBridge, &winchEncoder, &loadCell,

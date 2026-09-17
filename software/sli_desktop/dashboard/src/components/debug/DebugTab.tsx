@@ -15,18 +15,26 @@ interface DebugTabProps {
 // Map raw bus tag from firmware → { display name, address, GPIO note }
 const DEVICE_INFO: Record<string, { name: string; gpio: string }> = {
   "I2C0_SWING":   { name: "AS5600 Swing Encoder",    gpio: "SDA=21 SCL=22" },
+  "I2C0":         { name: "I2C Bus 0 (Wire)",        gpio: "SDA=21 SCL=22" },
   "I2C1_BOOM":    { name: "AS5600 Boom Encoder",     gpio: "SDA=25 SCL=26" },
+  "I2C1":         { name: "I2C Bus 1 (Wire1)",       gpio: "SDA=25 SCL=26" },
   "I2C2_TELE":    { name: "AS5600 Telescope Enc.",   gpio: "SDA=32 SCL=33" },
+  "I2C2":         { name: "I2C Bus 2 (SoftI2C)",     gpio: "SDA=32 SCL=33" },
   "MPU6050":      { name: "MPU6050 (IMU)",           gpio: "SDA=21 SCL=22" },
   "HX711":        { name: "HX711 (Load Cell)",       gpio: "DT=17 SCK=16"  },
   "FSR1":         { name: "FSR Front-Left",          gpio: "ADC=34" },
   "FSR2":         { name: "FSR Front-Right",         gpio: "ADC=35" },
-  "FSR3":         { name: "FSR Rear-Left",           gpio: "ADC=32" },
-  "FSR4":         { name: "FSR Rear-Right",          gpio: "ADC=33" },
+  "FSR3":         { name: "FSR Rear-Left",           gpio: "ADC=36" },
+  "FSR4":         { name: "FSR Rear-Right",          gpio: "ADC=39" },
   "N20_WINCH":    { name: "N20 Winch Encoder",       gpio: "A=18 B=19" },
+  "N20_TICKS":    { name: "N20 Winch Ticks",         gpio: "A=18 B=19" },
 };
 
-function friendlyName(bus: string): string {
+function friendlyName(bus: string, address?: string | null): string {
+  if (bus === "I2C0") {
+    if (address === "0x36") return "AS5600 Swing Encoder";
+    if (address === "0x68" || address === "0x69") return "MPU6050 (IMU)";
+  }
   return DEVICE_INFO[bus]?.name ?? bus;
 }
 
@@ -43,6 +51,26 @@ const CAL_ITEMS = [
 ];
 
 interface CalState { status: string; boomAxis: AxisChoice; swingAxis: AxisChoice; boomInv: boolean; swingInv: boolean; }
+
+const CAL_STORAGE_KEY = "sli_debug_cal_state_v2";
+
+const DEFAULT_CAL_STATE: Record<string, CalState> = {
+  imu: {
+    status: "",
+    boomAxis: "X",   // Roll — physical MPU default for boom
+    swingAxis: "Y",  // Pitch — physical MPU default for tilt
+    boomInv: false,
+    swingInv: false,
+  },
+};
+
+function loadSavedCalState(): Record<string, CalState> {
+  try {
+    const raw = localStorage.getItem(CAL_STORAGE_KEY);
+    if (raw) return { ...DEFAULT_CAL_STATE, ...JSON.parse(raw) };
+  } catch {}
+  return DEFAULT_CAL_STATE;
+}
 
 async function apiPost(path: string, body: object = {}) {
   try {
@@ -61,7 +89,7 @@ async function apiPost(path: string, body: object = {}) {
 export function DebugTab({ debugReport, lastAck }: DebugTabProps) {
   const [scanning, setScanning] = useState(false);
   const [logs, setLogs] = useState<{ text: string; type: "ack" | "info" | "err" }[]>([]);
-  const [calState, setCalState] = useState<Record<string, CalState>>({});
+  const [calState, setCalState] = useState<Record<string, CalState>>(loadSavedCalState);
   const termRef = useRef<HTMLDivElement>(null);
 
   // Collect ACKs into the log
@@ -78,21 +106,27 @@ export function DebugTab({ debugReport, lastAck }: DebugTabProps) {
   };
 
   const runCal = async (item: typeof CAL_ITEMS[0]) => {
-    const s = calState[item.key];
+    const s = calState[item.key] ?? DEFAULT_CAL_STATE[item.key];
     const body = item.hasAxis ? {
-      boomAxis: s?.boomAxis ?? "Y",
-      swingAxis: s?.swingAxis ?? "X",
-      boomInvert: s?.boomInv ?? false,
+      boomAxis:    s?.boomAxis  ?? "X",
+      tiltAxis:    s?.swingAxis ?? "Y",   // swingAxis field = tilt axis in UI state
+      swingAxis:   s?.swingAxis ?? "Y",
+      boomInvert:  s?.boomInv  ?? false,
+      tiltInvert:  s?.swingInv ?? false,
       swingInvert: s?.swingInv ?? false,
     } : {};
 
     addLog(`→ ${item.label} (${item.path})`, "info");
     const result = await apiPost(item.path, body);
     addLog(`← ${result.msg}`, result.ok ? "ack" : "err");
-    setCalState(prev => ({
-      ...prev,
-      [item.key]: { ...prev[item.key] as CalState, status: result.msg },
-    }));
+    setCalState(prev => {
+      const updated = {
+        ...prev,
+        [item.key]: { ...(prev[item.key] ?? DEFAULT_CAL_STATE[item.key]), status: result.msg },
+      };
+      try { localStorage.setItem(CAL_STORAGE_KEY, JSON.stringify(updated)); } catch {}
+      return updated;
+    });
   };
 
   const addLog = (text: string, type: "ack" | "info" | "err") => {
@@ -101,17 +135,22 @@ export function DebugTab({ debugReport, lastAck }: DebugTabProps) {
   };
 
   const setCalAxis = (key: string, field: string, val: string | boolean) => {
-    setCalState(prev => ({
-      ...prev,
-      [key]: {
-        boomAxis: (prev[key]?.boomAxis ?? "Y") as AxisChoice,
-        swingAxis: (prev[key]?.swingAxis ?? "X") as AxisChoice,
-        boomInv: prev[key]?.boomInv ?? false,
-        swingInv: prev[key]?.swingInv ?? false,
-        status: prev[key]?.status ?? "",
-        [field]: val,
-      },
-    }));
+    setCalState(prev => {
+      const cur = prev[key] ?? DEFAULT_CAL_STATE[key];
+      const updated = {
+        ...prev,
+        [key]: {
+          boomAxis: cur?.boomAxis ?? "Y",
+          swingAxis: cur?.swingAxis ?? "X",
+          boomInv: cur?.boomInv ?? false,
+          swingInv: cur?.swingInv ?? false,
+          status: cur?.status ?? "",
+          [field]: val,
+        },
+      };
+      try { localStorage.setItem(CAL_STORAGE_KEY, JSON.stringify(updated)); } catch {}
+      return updated;
+    });
   };
 
   return (
@@ -145,16 +184,21 @@ export function DebugTab({ debugReport, lastAck }: DebugTabProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {debugReport.entries.map((e, i) => (
-                    <tr key={i}>
-                      <td>{friendlyName(e.bus)}</td>
-                      <td className="dim-text">{gpioNote(e.bus)}</td>
-                      <td className="dim-text">{e.address ?? "—"}</td>
-                      <td className={e.status === "OK" ? "ok-text" : "fail-text"}>
-                        {e.status}
-                      </td>
-                    </tr>
-                  ))}
+                  {debugReport.entries.map((e, i) => {
+                    const isFail = e.status === "FAIL" || e.status === "ERR" || e.status === "NOT FOUND";
+                    const isNumeric = e.status !== "—" && e.status !== "" && !isNaN(Number(e.status));
+                    const isOk = e.status === "OK" || (!isFail && isNumeric);
+                    return (
+                      <tr key={i}>
+                        <td>{friendlyName(e.bus, e.address)}</td>
+                        <td className="dim-text">{gpioNote(e.bus)}</td>
+                        <td className="dim-text">{e.address ?? "—"}</td>
+                        <td className={isOk ? "ok-text" : isFail ? "fail-text" : "dim-text"}>
+                          {e.status}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             ) : (
@@ -202,7 +246,7 @@ export function DebugTab({ debugReport, lastAck }: DebugTabProps) {
                             {(["X", "Y", "Z"] as AxisChoice[]).map(a => (
                               <button
                                 key={a}
-                                className={`axis-badge ${(calState[item.key]?.boomAxis ?? "Y") === a ? "sel" : ""}`}
+                                className={`axis-badge ${(calState[item.key]?.boomAxis ?? "X") === a ? "sel" : ""}`}
                                 onClick={() => setCalAxis(item.key, "boomAxis", a)}
                               >
                                 {a}
@@ -217,14 +261,14 @@ export function DebugTab({ debugReport, lastAck }: DebugTabProps) {
                             </button>
                           </div>
                         </div>
-                        {/* Swing angle axis */}
+                        {/* Chassis tilt angle axis */}
                         <div>
-                          <div style={{ fontSize: 9, color: "var(--text-secondary)", marginBottom: 3 }}>Swing</div>
+                          <div style={{ fontSize: 9, color: "var(--text-secondary)", marginBottom: 3 }}>Chassis Tilt</div>
                           <div className="cal-axis-row">
                             {(["X", "Y", "Z"] as AxisChoice[]).map(a => (
                               <button
                                 key={a}
-                                className={`axis-badge ${(calState[item.key]?.swingAxis ?? "X") === a ? "sel" : ""}`}
+                                className={`axis-badge ${(calState[item.key]?.swingAxis ?? "Y") === a ? "sel" : ""}`}
                                 onClick={() => setCalAxis(item.key, "swingAxis", a)}
                               >
                                 {a}

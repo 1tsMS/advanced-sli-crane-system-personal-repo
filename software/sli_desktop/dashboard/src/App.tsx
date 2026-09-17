@@ -39,9 +39,9 @@ function fsrLevel(val: number): "off" | "low" | "mid" | "high" {
 
 export default function App() {
   const [tab, setTab]     = useState<TabId>("dashboard");
-  const [speed, setSpeed] = useState(150);
+  const [speed, setSpeed] = useState(1000);
 
-  const { frame, debugReport, lastAck, wsStatus } = useTelemetry();
+  const { frame, debugReport, lastAck, wsStatus, espConnected } = useTelemetry();
 
   const alarm = frame?.alarmLevel ?? 0;
   const alarmClass = ALARM_CLASS[alarm];
@@ -74,10 +74,20 @@ export default function App() {
         ))}
 
         <div className="sidebar-spacer" />
-        <div
-          className={`sidebar-conn ${wsStatus === "connected" ? "live" : ""}`}
-          title={wsStatus}
-        />
+        <div className="sidebar-footer">
+          <div
+            className={`sidebar-conn ${wsStatus === "connected" ? "live" : ""}`}
+            title={wsStatus === "connected" ? "Backend Server: Connected" : "Backend Server: Disconnected"}
+          >
+            <span className="conn-tag">SRV</span>
+          </div>
+          <div
+            className={`sidebar-conn esp ${espConnected ? "live" : ""}`}
+            title={espConnected ? "ESP32 Controller: Connected" : "ESP32 Controller: Disconnected"}
+          >
+            <span className="conn-tag">ESP</span>
+          </div>
+        </div>
       </aside>
 
       {/* Main area */}
@@ -98,13 +108,21 @@ export default function App() {
                 Boom <span className="header-stat-val">{frame.boomAngle.toFixed(1)}°</span>
               </div>
               <div className="header-stat">
-                Load <span className="header-stat-val">{frame.actualLoad.toFixed(2)} kg</span>
+                Load <span className="header-stat-val" style={{
+                  color: (frame.actualLoad > 10.0 || frame.actualLoad < -0.5) ? "var(--amber)" : "var(--text-primary)"
+                }}>
+                  {frame.actualLoad > 10.0 || frame.actualLoad < -0.5
+                    ? "ERR (>10kg)"
+                    : `${frame.actualLoad.toFixed(2)} kg`}
+                </span>
               </div>
               <div className="header-stat">
                 <span className="header-stat-val" style={{
-                  color: frame.loadPercent >= 100 ? "var(--red)" : frame.loadPercent >= 80 ? "var(--amber)" : "var(--cyan)"
+                  color: (frame.actualLoad > 10.0 || frame.loadPercent >= 900)
+                    ? "var(--amber)"
+                    : frame.loadPercent >= 100 ? "var(--red)" : frame.loadPercent >= 80 ? "var(--amber)" : "var(--cyan)"
                 }}>
-                  {frame.loadPercent.toFixed(1)}%
+                  {frame.actualLoad > 10.0 || frame.loadPercent >= 900 ? "UNCAL" : `${frame.loadPercent.toFixed(1)}%`}
                 </span>
               </div>
             </>
@@ -149,9 +167,16 @@ export default function App() {
                   </div>
                   {/* Gauges */}
                   <div className="gauges-row">
-                    <Gauge value={frame?.loadPercent ?? 0} max={120} label="Load" unit="%" size={105} />
-                    <Gauge value={frame?.boomAngle ?? 0} max={80} label="Boom" unit="°" color="#00D68F" size={105} />
-                    <Gauge value={Math.abs(frame?.imuRoll ?? 0)} max={15} label="Tilt" unit="°" color="#F5A623" size={105} />
+                    <Gauge
+                      value={frame?.loadPercent ?? 0}
+                      max={120}
+                      label="Load"
+                      unit="%"
+                      size={105}
+                      isError={(frame?.actualLoad ?? 0) > 10.0 || (frame?.actualLoad ?? 0) < -0.5 || (frame?.loadPercent ?? 0) >= 900}
+                    />
+                    <Gauge value={frame?.boomAngle ?? 0} min={0} max={80} label="Boom" unit="°" color="#00D68F" size={105} />
+                    <Gauge value={frame?.imuPitch ?? 0} min={-15} max={15} label="Tilt" unit="°" color="#00D4FF" size={105} />
                   </div>
                 </div>
 

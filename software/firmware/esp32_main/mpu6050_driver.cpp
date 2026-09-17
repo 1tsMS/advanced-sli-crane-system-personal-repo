@@ -5,7 +5,14 @@
 
 bool MPU6050Driver::begin() {
     // Uses Wire (Bus 0: GPIO 21/22, initialized in esp32_main setup)
-    if (!_mpu.begin(MPU6050_ADDR, &Wire)) {
+    // Probe primary address 0x68, then alternate address 0x69 (in case AD0 is pulled high)
+    bool ok = _mpu.begin(0x68, &Wire);
+    if (!ok) {
+        delay(10);
+        ok = _mpu.begin(0x69, &Wire);
+    }
+
+    if (!ok) {
         _connected = false;
         return false;
     }
@@ -21,12 +28,22 @@ bool MPU6050Driver::begin() {
 }
 
 void MPU6050Driver::update() {
-    if (!_connected) return;
+    if (!_connected) {
+        // Auto-reconnect probe every 2.5s if unplugged/loose on boot
+        static unsigned long lastRetryMs = 0;
+        if (millis() - lastRetryMs > 2500) {
+            lastRetryMs = millis();
+            begin();
+        }
+        return;
+    }
 
     sensors_event_t a, g, temp;
     if (!_mpu.getEvent(&a, &g, &temp)) {
+        _connected = false;
         return;
     }
+    Wire.setClock(100000);  // Prevent Adafruit_I2CDevice from leaving bus at 400kHz
 
     // Accelerometer in m/s²
     _accelX = a.acceleration.x;
@@ -84,8 +101,15 @@ void MPU6050Driver::calibrateGyro(uint16_t samples) {
         _gyroOffsetZ = sumZ / valid;
     }
 
-    _roll = 0.0f;
-    _pitch = 0.0f;
+    // Re-seed complementary filter angles directly to instantaneous accelerometer gravity vector
+    sensors_event_t a, g, temp;
+    if (_mpu.getEvent(&a, &g, &temp)) {
+        float ax = _remapped(a.acceleration.x, a.acceleration.y, a.acceleration.z, _axisMap.roll_src, _axisMap.roll_inv);
+        float ay = _remapped(a.acceleration.x, a.acceleration.y, a.acceleration.z, _axisMap.pitch_src, _axisMap.pitch_inv);
+        float az = a.acceleration.z;
+        _roll  = atan2(ay, az) * 180.0f / PI;
+        _pitch = atan2(-ax, sqrtf(ay * ay + az * az)) * 180.0f / PI;
+    }
     _lastUpdateUs = micros();
 }
 

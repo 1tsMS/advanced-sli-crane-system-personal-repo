@@ -10,7 +10,10 @@ const fmt = (v: number, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : "--");
 export function TelemetryPanel({ frame: f }: TelemetryPanelProps) {
   const actualLoad = f?.actualLoad ?? 0;
   const safeLimit = f?.safeLoadLimit ?? 5.0;
-  const pct = f?.loadPercent ?? (safeLimit > 0 ? (actualLoad / safeLimit) * 100 : 0);
+
+  // Sanity check: on a 5kg model crane, anything >10kg is uncalibrated raw ADC or sensor error
+  const isLoadError = actualLoad > 10.0 || actualLoad < -0.5 || (f?.loadPercent ?? 0) > 900;
+  const pct = isLoadError ? 0 : (f?.loadPercent ?? (safeLimit > 0 ? (actualLoad / safeLimit) * 100 : 0));
   const boomAngle = f?.boomAngle ?? 0;
   const extMM = f?.extensionMM ?? 0;
   const ropeLen = f?.ropeLength ?? 0;
@@ -23,10 +26,10 @@ export function TelemetryPanel({ frame: f }: TelemetryPanelProps) {
   const operatingRadiusM = nominalBoomM * Math.cos((boomAngle * Math.PI) / 180);
 
   // Status classification
-  const isOverload = pct >= 100;
-  const isWarn = pct >= 80 && pct < 100;
-  const statusColor = isOverload ? "var(--red)" : isWarn ? "var(--amber)" : "var(--green)";
-  const statusLabel = isOverload ? "OVERLOAD" : isWarn ? "WARNING" : "NORMAL";
+  const isOverload = !isLoadError && pct >= 100;
+  const isWarn = !isLoadError && pct >= 80 && pct < 100;
+  const statusColor = isLoadError ? "var(--amber)" : isOverload ? "var(--red)" : isWarn ? "var(--amber)" : "var(--green)";
+  const statusLabel = isLoadError ? "LOAD SENSOR ERR" : isOverload ? "OVERLOAD" : isWarn ? "WARNING" : "NORMAL";
 
   const imuWarn = Math.abs(roll) > 5 || Math.abs(pitch) > 5;
 
@@ -49,10 +52,23 @@ export function TelemetryPanel({ frame: f }: TelemetryPanelProps) {
           </div>
 
           <div className="hero-load-display">
-            <span className="hero-load-value" style={{ color: statusColor }}>
-              {fmt(actualLoad, 2)}
-            </span>
-            <span className="hero-load-unit">kg</span>
+            {isLoadError ? (
+              <>
+                <span className="hero-load-value" style={{ color: "var(--amber)", fontSize: "1.4rem" }}>
+                  ERR (&gt;10kg)
+                </span>
+                <span className="hero-load-unit" style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>
+                  [Raw: {fmt(f?.loadCellRaw ?? actualLoad, 0)}]
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="hero-load-value" style={{ color: statusColor }}>
+                  {fmt(actualLoad, 2)}
+                </span>
+                <span className="hero-load-unit">kg</span>
+              </>
+            )}
             <span className="hero-load-limit">/ {fmt(safeLimit, 2)} kg MAX</span>
           </div>
 
@@ -61,8 +77,9 @@ export function TelemetryPanel({ frame: f }: TelemetryPanelProps) {
             <div
               className="hero-progress-fill"
               style={{
-                width: `${Math.min(100, Math.max(0, pct))}%`,
+                width: isLoadError ? "100%" : `${Math.min(100, Math.max(0, pct))}%`,
                 background: statusColor,
+                opacity: isLoadError ? 0.4 : 1,
               }}
             />
             <div className="hero-progress-marker warn" style={{ left: "80%" }} />
@@ -71,9 +88,11 @@ export function TelemetryPanel({ frame: f }: TelemetryPanelProps) {
 
           <div className="hero-progress-meta">
             <span className="hero-pct-label" style={{ color: statusColor }}>
-              {fmt(pct, 1)}% SWL
+              {isLoadError ? "UNCALIBRATED / OVERFLOW" : `${fmt(pct, 1)}% SWL`}
             </span>
-            <span className="hero-raw-sub">Sens: {fmt(f?.measuredLoad ?? 0, 2)}kg</span>
+            <span className="hero-raw-sub">
+              {isLoadError ? "Tare/Calibrate in Debug" : `Sens: ${fmt(f?.measuredLoad ?? 0, 2)}kg`}
+            </span>
           </div>
         </div>
 

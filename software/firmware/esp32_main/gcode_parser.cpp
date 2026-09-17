@@ -43,8 +43,8 @@ ParseResult GCodeParser::parse(const char* line, ParsedCommand* out) {
         out->motor.direction = (uint8_t)extractParam(line, 'D', 0);
         out->motor.isEstop = false;
 
-        // Clamp speed to 0-255
-        if (out->motor.speed > 255) out->motor.speed = 255;
+        // Clamp speed to 0-2500
+        if (out->motor.speed > 2500) out->motor.speed = 2500;
         // Clamp direction to 0 or 1
         if (out->motor.direction > 1) out->motor.direction = 1;
 
@@ -57,8 +57,15 @@ ParseResult GCodeParser::parse(const char* line, ParsedCommand* out) {
         char digit = line[3];
         switch (digit) {
             case '0': out->calType = CAL_TARE_LOAD;  return PARSE_OK;
-            case '1': out->calType = CAL_ZERO_IMU;   return PARSE_OK;
-            case '2': out->calType = CAL_RESET_TELE;  return PARSE_OK;
+            case '1': {
+                out->calType  = CAL_ZERO_IMU;
+                out->boomAxis = (int8_t)extractParam(line, 'B', 0);
+                out->boomInv  = (int8_t)extractParam(line, 'I', 0);
+                out->tiltAxis = (int8_t)extractParam(line, 'T', 1);
+                out->tiltInv  = (int8_t)extractParam(line, 'Q', 0);
+                return PARSE_OK;
+            }
+            case '2': out->calType = CAL_RESET_TELE; return PARSE_OK;
             default:  return PARSE_INVALID_PARAMS;
         }
     }

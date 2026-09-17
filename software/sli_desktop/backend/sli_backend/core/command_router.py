@@ -15,15 +15,17 @@ logger = logging.getLogger(__name__)
 
 # Valid command patterns
 _VALID_PATTERNS = [
-    re.compile(r"^T0$"),                               # Emergency stop
-    re.compile(r"^M[1-4]\s+S\d{1,3}\s+D[01]$"),       # Motor command
-    re.compile(r"^M0\s+A[1-4]$"),                      # Stop axis
-    re.compile(r"^CAL[012]$"),                          # Calibration
-    re.compile(r"^DBG$"),                               # Debug request
-    re.compile(r"^CFG\s+RATE\s+\d+$"),                 # Config rate
-    re.compile(r"^LC\s+UPLOAD\s+\d+$"),                # Load chart upload start
-    re.compile(r"^LC\s+[\d.]+,[\d.]+,[\d.]+$"),        # Load chart entry
-    re.compile(r"^LC\s+SAVE$"),                         # Load chart save
+    re.compile(r"^T0$"),                                             # Emergency stop
+    re.compile(r"^M[1-4]\s+S\d{1,4}\s+D[01]$"),                    # Motor command
+    re.compile(r"^M0\s+A[1-4]$"),                                    # Stop axis
+    re.compile(r"^CAL0$"),                                           # Tare load cell
+    re.compile(r"^CAL1(\s+B[012])?(\s+I[01])?(\s+T[012])?(\s+Q[01])?$"),  # IMU cal (with optional axis/invert params)
+    re.compile(r"^CAL2$"),                                           # Reset telescope
+    re.compile(r"^DBG$"),                                            # Debug request
+    re.compile(r"^CFG\s+RATE\s+\d+$"),                              # Config rate
+    re.compile(r"^LC\s+UPLOAD\s+\d+$"),                             # Load chart upload start
+    re.compile(r"^LC\s+[\d.]+,[\d.]+,[\d.]+$"),                     # Load chart entry
+    re.compile(r"^LC\s+SAVE$"),                                      # Load chart save
 ]
 
 

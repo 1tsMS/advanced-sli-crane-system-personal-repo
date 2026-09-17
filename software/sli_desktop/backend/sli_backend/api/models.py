@@ -71,6 +71,16 @@ class StatusResponse(BaseModel):
     backendOK:   bool = True
 
 
+class ImuCalibrateRequest(BaseModel):
+    """IMU zeroing and axis remapping request."""
+    boomAxis:    Optional[str] = "Y"
+    tiltAxis:    Optional[str] = "X"
+    swingAxis:   Optional[str] = "X"
+    boomInvert:  Optional[bool] = False
+    tiltInvert:  Optional[bool] = False
+    swingInvert: Optional[bool] = False
+
+
 class ApiResponse(BaseModel):
     """Generic REST API response envelope."""
     ok:      bool

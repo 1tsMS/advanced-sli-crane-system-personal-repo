@@ -2,6 +2,7 @@ export interface TelemetryFrame {
   boomAngle: number;
   extensionMM: number;
   measuredLoad: number;
+  loadCellRaw?: number;
   actualLoad: number;
   swingAngle: number;
   ropeLength: number;

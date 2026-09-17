@@ -3,6 +3,7 @@
 // ============================================================
 #include "command_task.h"
 #include "telemetry_task.h"
+#include "sensor_task.h"
 
 // Subsystem references (set by init)
 static MegaBridge*   _mega      = nullptr;
@@ -108,10 +109,13 @@ void commandTask(void* pvParameters) {
                                 }
                                 break;
                             case CAL_ZERO_IMU:
-                                if (_imu) {
-                                    _imu->calibrateGyro(500);
-                                    Serial.println("$ACK,CAL1,IMU_ZEROED");
-                                }
+                                sensorTask_requestIMUCalibration(
+                                    (uint8_t)cmd.boomAxis,
+                                    (cmd.boomInv != 0),
+                                    (uint8_t)cmd.tiltAxis,
+                                    (cmd.tiltInv != 0)
+                                );
+                                Serial.println("$ACK,CAL1,IMU_ZEROED");
                                 break;
                             case CAL_RESET_TELE:
                                 if (_teleEnc) {

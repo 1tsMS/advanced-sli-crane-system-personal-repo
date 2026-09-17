@@ -4,13 +4,14 @@ REST API endpoints — all HTTP routes for the SLI backend.
 from __future__ import annotations
 import logging
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from ..api.models import (
     CommandRequest, ConnectionRequest, LoadChartUpload,
-    StatusResponse, ApiResponse
+    StatusResponse, ApiResponse, ImuCalibrateRequest
 )
 from ..api.ws_endpoint import ws_manager
 
@@ -125,9 +126,29 @@ async def calibrate_tare():
 
 
 @router.post("/calibrate/imu", response_model=ApiResponse)
-async def calibrate_imu():
-    """Send CAL1 (zero IMU) to ESP32."""
-    ok, msg = _command_router.send("CAL1")
+async def calibrate_imu(req: Optional[ImuCalibrateRequest] = None):
+    """Send CAL1 (zero IMU) with optional axis remapping to ESP32.
+
+    Firmware CAL1 params:
+      B<0|1>  — boom source axis: 0=Roll(X), 1=Pitch(Y)
+      I<0|1>  — boom invert flag
+      T<0|1>  — tilt source axis: 0=Roll(X), 1=Pitch(Y)  (opposite of boom)
+      Q<0|1>  — tilt invert flag
+    """
+    if req:
+        # Map axis string to index: "X"/"Roll" -> 0, "Y"/"Pitch" -> 1
+        def axis_idx(s: Optional[str], default: int) -> int:
+            return 1 if (s or "").upper() in ("Y", "PITCH") else (0 if (s or "").upper() in ("X", "ROLL") else default)
+
+        b  = axis_idx(req.boomAxis, 0)          # boom source (default Roll=0)
+        t  = axis_idx(req.tiltAxis, 1)          # tilt source (default Pitch=1)
+        bi = 1 if req.boomInvert else 0
+        ti = 1 if (req.tiltInvert or req.swingInvert) else 0
+        cmd = f"CAL1 B{b} I{bi} T{t} Q{ti}"
+    else:
+        # Sensible defaults: boom=Roll(0) inverted, tilt=Pitch(1) not inverted
+        cmd = "CAL1 B0 I1 T1 Q0"
+    ok, msg = _command_router.send(cmd)
     return ApiResponse(ok=ok, message=msg)
 
 

@@ -33,4 +33,18 @@ void sensorTask_init(
  */
 void sensorTask(void* pvParameters);
 
+/** Zero both boom and tilt angles to current position and save to flash */
+void sensorTask_zeroIMU();
+
+/** Safely request IMU calibration to be processed on Core 1 (avoids I2C collisions).
+ *  @param boomSrc   0=Roll(X), 1=Pitch(Y) — physical source axis for boom angle
+ *  @param boomInv   true to negate boom output
+ *  @param tiltSrc   0=Roll(X), 1=Pitch(Y) — physical source axis for tilt angle (independent)
+ *  @param tiltInv   true to negate tilt output
+ */
+void sensorTask_requestIMUCalibration(uint8_t boomSrc, bool boomInv, uint8_t tiltSrc, bool tiltInv);
+
+/** Load calibration offsets and axis settings from NVS flash */
+void sensorTask_loadCalibration();
+
 #endif // SENSOR_TASK_H

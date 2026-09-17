@@ -118,7 +118,7 @@ export function MotorControls({ speed, onSpeedChange }: MotorControlsProps) {
           Speed: <span className="speed-val">{speed}</span>
         </span>
         <input
-          type="range" min={20} max={255} step={5}
+          type="range" min={250} max={2500} step={10}
           value={speed}
           onChange={e => onSpeedChange(Number(e.target.value))}
           className="speed-slider"

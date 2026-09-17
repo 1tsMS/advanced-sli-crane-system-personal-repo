@@ -151,17 +151,57 @@ button {
 
 .sidebar-spacer { flex: 1; }
 
-.sidebar-conn {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  margin-bottom: 6px;
-  transition: all 0.3s;
+.sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
 }
-.sidebar-conn.live {
+
+.sidebar-conn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  cursor: default;
+}
+
+.sidebar-conn::before {
+  content: "";
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-conn.live::before {
   background: var(--green);
-  box-shadow: 0 0 10px rgba(0, 214, 143, 0.8);
+  box-shadow: 0 0 8px rgba(0, 214, 143, 0.85);
+}
+
+.sidebar-conn.esp.live::before {
+  background: var(--cyan);
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.85);
+}
+
+.conn-tag {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  transition: color 0.3s;
+}
+
+.sidebar-conn.live .conn-tag {
+  color: rgba(0, 214, 143, 0.9);
+}
+
+.sidebar-conn.esp.live .conn-tag {
+  color: rgba(0, 212, 255, 0.9);
 }
 
 /* ====================== MAIN AREA ====================== */

@@ -82,15 +82,14 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
 
     // --- Layout Geometry ---
     // Pivot positioned at right-center so boom elevates and reaches toward the left
-    const pivX = Math.round(W * 0.74);
-    const pivY = Math.round(H * 0.78);
-    const groundY = pivY + 22;
+    const pivX = Math.round(W * 0.78);
+    const pivY = Math.round(H * 0.82);
+    const groundY = pivY + 20;
 
-    // Boom length scaling (guaranteed to stay inside canvas)
-    // Horizontal space to left: pivX - 40; Vertical space to top: pivY - 35
-    const maxAllowedBoom = Math.min(pivX - 45, pivY - 35);
-    const baseBoomLen = maxAllowedBoom * 0.72;
-    const maxExtPx = maxAllowedBoom * 0.28;
+    // Boom length scaling (guaranteed to stay inside canvas with enhanced presence)
+    const maxAllowedBoom = Math.min(pivX - 32, pivY - 26);
+    const baseBoomLen = maxAllowedBoom * 0.80;
+    const maxExtPx = maxAllowedBoom * 0.20;
     const extRatio = Math.min(extMM / 600, 1); // 600mm max physical extension
     const currentBoomLen = baseBoomLen + extRatio * maxExtPx;
 
@@ -201,7 +200,7 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.roundRect(pivX - 42, groundY - 10, 84, 10, [2, 2, 0, 0]);
+    ctx.roundRect(pivX - 48, groundY - 11, 96, 11, [2, 2, 0, 0]);
     ctx.fill();
     ctx.stroke();
 
@@ -210,17 +209,17 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(pivX + 8, pivY - 12, 34, 22, 3);
+    ctx.roundRect(pivX + 8, pivY - 14, 38, 25, 3);
     ctx.fill();
     ctx.stroke();
 
     // Hazard stripes on counterweight
     ctx.strokeStyle = "rgba(245, 166, 35, 0.4)";
     ctx.lineWidth = 2;
-    for (let cs = pivX + 14; cs < pivX + 38; cs += 8) {
+    for (let cs = pivX + 14; cs < pivX + 42; cs += 8) {
       ctx.beginPath();
-      ctx.moveTo(cs, pivY + 8);
-      ctx.lineTo(cs + 6, pivY - 10);
+      ctx.moveTo(cs, pivY + 9);
+      ctx.lineTo(cs + 6, pivY - 12);
       ctx.stroke();
     }
 
@@ -229,20 +228,20 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     ctx.strokeStyle = "rgba(0, 212, 255, 0.35)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(pivX - 22, groundY - 10);
-    ctx.lineTo(pivX + 22, groundY - 10);
-    ctx.lineTo(pivX + 16, pivY - 2);
-    ctx.lineTo(pivX - 16, pivY - 2);
+    ctx.moveTo(pivX - 25, groundY - 11);
+    ctx.lineTo(pivX + 25, groundY - 11);
+    ctx.lineTo(pivX + 18, pivY - 2);
+    ctx.lineTo(pivX - 18, pivY - 2);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
     // --- Hydraulic Luffing Cylinder ---
     // Cylinder anchor on chassis
-    const cylAnchorX = pivX - 24;
-    const cylAnchorY = groundY - 10;
-    // Cylinder rod attaches to boom at ~36% of base boom length
-    const cylBoomAttachDist = baseBoomLen * 0.36;
+    const cylAnchorX = pivX - 26;
+    const cylAnchorY = groundY - 11;
+    // Cylinder rod attaches to boom at ~38% of base boom length
+    const cylBoomAttachDist = baseBoomLen * 0.38;
     const cylAttachX = pivX - Math.cos(angleRad) * cylBoomAttachDist;
     const cylAttachY = pivY - Math.sin(angleRad) * cylBoomAttachDist;
 
@@ -256,7 +255,7 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
 
     // Chrome rod
     ctx.strokeStyle = "#C4CCD9";
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 5;
     ctx.lineCap = "round";
     ctx.beginPath();
     ctx.moveTo(cylAnchorX, cylAnchorY);
@@ -265,7 +264,7 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
 
     // Outer barrel
     ctx.strokeStyle = "#1C2333";
-    ctx.lineWidth = 8;
+    ctx.lineWidth = 10;
     ctx.lineCap = "butt";
     ctx.beginPath();
     ctx.moveTo(cylAnchorX, cylAnchorY);
@@ -279,11 +278,11 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     // Cylinder pivot pin
     ctx.fillStyle = cyanAccent;
     ctx.beginPath();
-    ctx.arc(cylAnchorX, cylAnchorY, 3, 0, Math.PI * 2);
+    ctx.arc(cylAnchorX, cylAnchorY, 3.5, 0, Math.PI * 2);
     ctx.fill();
 
     // --- Boom Structure ---
-    const boomWidth = 12;
+    const boomWidth = 15;
 
     // 1. Extendable inner boom section (drawn first, slides inside)
     if (extRatio > 0.01) {
@@ -293,7 +292,7 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
 
       ctx.save();
       ctx.strokeStyle = "rgba(220, 235, 255, 0.85)";
-      ctx.lineWidth = boomWidth * 0.65;
+      ctx.lineWidth = boomWidth * 0.68;
       ctx.lineCap = "square";
       ctx.beginPath();
       ctx.moveTo(inStartX, inStartY);
@@ -326,7 +325,7 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     ctx.save();
     // Boom shadow / glow
     ctx.shadowColor = statusColor;
-    ctx.shadowBlur = alarmLevel >= 1 ? 12 : 6;
+    ctx.shadowBlur = alarmLevel >= 1 ? 14 : 7;
     ctx.strokeStyle = statusColor;
     ctx.lineWidth = boomWidth;
     ctx.lineCap = "round";
@@ -338,7 +337,7 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
 
     // Solid inner core
     ctx.strokeStyle = "#161B26";
-    ctx.lineWidth = boomWidth - 3;
+    ctx.lineWidth = boomWidth - 4;
     ctx.lineCap = "round";
     ctx.beginPath();
     ctx.moveTo(pivX, pivY);
@@ -347,7 +346,7 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
 
     // Collar band at base boom tip
     ctx.strokeStyle = cyanAccent;
-    ctx.lineWidth = boomWidth + 2;
+    ctx.lineWidth = boomWidth + 3;
     ctx.lineCap = "butt";
     ctx.beginPath();
     ctx.moveTo(baseEndX + Math.cos(angleRad) * 4, baseEndY + Math.sin(angleRad) * 4);
@@ -357,12 +356,12 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     // 3. Boom Point Sheave / Head
     ctx.fillStyle = cyanAccent;
     ctx.beginPath();
-    ctx.arc(boomEndX, boomEndY, 6, 0, Math.PI * 2);
+    ctx.arc(boomEndX, boomEndY, 7.5, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.fillStyle = "#0A0D14";
     ctx.beginPath();
-    ctx.arc(boomEndX, boomEndY, 2.5, 0, Math.PI * 2);
+    ctx.arc(boomEndX, boomEndY, 3, 0, Math.PI * 2);
     ctx.fill();
 
     // --- Wire Rope & Hook Block ---
@@ -374,7 +373,7 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
 
     // Wire rope
     ctx.strokeStyle = "rgba(220, 230, 245, 0.75)";
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1.8;
     ctx.beginPath();
     ctx.moveTo(boomEndX, boomEndY + 4);
     ctx.lineTo(hookX, hookY);
@@ -385,19 +384,25 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(hookX - 5, hookY, 10, 10, 2);
+    ctx.roundRect(hookX - 6, hookY, 12, 12, 2.5);
     ctx.fill();
     ctx.stroke();
 
     // Hook loop & tip
     ctx.strokeStyle = "#F5A623";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.2;
     ctx.beginPath();
-    ctx.arc(hookX, hookY + 14, 5, 0, Math.PI * 1.5);
+    ctx.arc(hookX, hookY + 16, 6, 0, Math.PI * 1.5);
     ctx.stroke();
 
     // Load indicator at hook
-    if (actualLoad > 0.05) {
+    const isLoadError = actualLoad > 10.0 || actualLoad < -0.5 || (frame?.loadPercent ?? 0) >= 900;
+    if (isLoadError) {
+      ctx.fillStyle = "#FFB300";
+      ctx.font = "bold 10px JetBrains Mono, monospace";
+      ctx.textAlign = "left";
+      ctx.fillText("LOAD ERR (>10kg)", hookX + 10, hookY + 12);
+    } else if (actualLoad > 0.05) {
       ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
       ctx.font = "bold 10px JetBrains Mono, monospace";
       ctx.textAlign = "left";
@@ -409,17 +414,17 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     ctx.strokeStyle = cyanAccent;
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.arc(pivX, pivY, 9, 0, Math.PI * 2);
+    ctx.arc(pivX, pivY, 11, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = cyanAccent;
     ctx.beginPath();
-    ctx.arc(pivX, pivY, 3.5, 0, Math.PI * 2);
+    ctx.arc(pivX, pivY, 4.5, 0, Math.PI * 2);
     ctx.fill();
 
     // --- Boom Angle Sector Arc & Badge ---
-    const arcRadius = 46;
+    const arcRadius = 52;
     ctx.save();
     ctx.strokeStyle = cyanAccent;
     ctx.lineWidth = 2;
@@ -429,19 +434,19 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
 
     // Angle text badge on arc
     const midAngle = Math.PI + angleRad * 0.5;
-    const badgeX = pivX + Math.cos(midAngle) * (arcRadius + 18);
-    const badgeY = pivY + Math.sin(midAngle) * (arcRadius + 18);
+    const badgeX = pivX + Math.cos(midAngle) * (arcRadius + 20);
+    const badgeY = pivY + Math.sin(midAngle) * (arcRadius + 20);
 
     ctx.fillStyle = "rgba(10, 15, 25, 0.85)";
     ctx.strokeStyle = "rgba(0, 212, 255, 0.4)";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(badgeX - 22, badgeY - 9, 44, 18, 4);
+    ctx.roundRect(badgeX - 25, badgeY - 10, 50, 20, 4);
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = "#FFFFFF";
-    ctx.font = "bold 11px JetBrains Mono, monospace";
+    ctx.font = "bold 12px JetBrains Mono, monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(`${boomAngle.toFixed(1)}°`, badgeX, badgeY);
@@ -450,11 +455,14 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     // --- Top Overlay Info Badges ---
     // Safe load status badge
     ctx.save();
-    const loadPct = safeLimit > 0 ? (actualLoad / safeLimit) * 100 : 0;
+    const loadPct = isLoadError ? 0 : (safeLimit > 0 ? (actualLoad / safeLimit) * 100 : 0);
     ctx.font = "600 11px Inter, sans-serif";
-    ctx.fillStyle = statusColor;
+    ctx.fillStyle = isLoadError ? "#FFB300" : statusColor;
     ctx.textAlign = "left";
-    ctx.fillText(`● SWL: ${safeLimit.toFixed(1)}kg (${loadPct.toFixed(0)}%)`, 16, 24);
+    ctx.fillText(
+      isLoadError ? "● LOAD SENSOR ERR (>10kg)" : `● SWL: ${safeLimit.toFixed(1)}kg (${loadPct.toFixed(0)}%)`,
+      16, 24
+    );
 
     if (extMM > 5) {
       ctx.fillStyle = "rgba(255, 255, 255, 0.6)";

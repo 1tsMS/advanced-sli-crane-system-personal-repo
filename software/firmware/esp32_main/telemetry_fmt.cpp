@@ -38,19 +38,19 @@ void TelemetryFormatter::formatDebugReport(
     int pos = 0;
 
     pos += snprintf(buffer + pos, bufLen - pos,
-        "$D,I2C0,0x%02X,%s\n", AS5600_ADDR, swingOK ? "OK" : "FAIL");
+        "$D,I2C0_SWING,0x%02X,%s\n", AS5600_ADDR, swingOK ? "OK" : "FAIL");
 
     pos += snprintf(buffer + pos, bufLen - pos,
-        "$D,I2C1,0x%02X,%s\n", AS5600_ADDR, boomOK ? "OK" : "FAIL");
+        "$D,I2C1_BOOM,0x%02X,%s\n", AS5600_ADDR, boomOK ? "OK" : "FAIL");
 
     pos += snprintf(buffer + pos, bufLen - pos,
-        "$D,I2C2,0x%02X,%s\n", AS5600_ADDR, teleOK ? "OK" : "FAIL");
+        "$D,I2C2_TELE,0x%02X,%s\n", AS5600_ADDR, teleOK ? "OK" : "FAIL");
 
     pos += snprintf(buffer + pos, bufLen - pos,
-        "$D,I2C0,0x%02X,%s\n", MPU6050_ADDR, mpuOK ? "OK" : "FAIL");
+        "$D,MPU6050,0x%02X,%s\n", MPU6050_ADDR, mpuOK ? "OK" : "FAIL");
 
     pos += snprintf(buffer + pos, bufLen - pos,
-        "$D,HX711,%s\n", hx711OK ? "OK" : "FAIL");
+        "$D,HX711,NA,%s\n", hx711OK ? "OK" : "FAIL");
 
     pos += snprintf(buffer + pos, bufLen - pos,
         "$D,FSR1,%u\n", fsr[0]);
