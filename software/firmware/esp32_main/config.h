@@ -49,8 +49,9 @@
 #define N20_ENC_B  19  // Interrupt-capable
 
 // ======================== UART2 TO ARDUINO MEGA ========================
-#define MEGA_TX_PIN  17   // ESP32 GPIO17 (TX2) → Mega Pin 19 (RX1)
-#define MEGA_RX_PIN  16   // ESP32 GPIO16 (RX2) → Mega Pin 18 (TX1)
+// Confirmed from test_codes/esp_serial_test/esp_serial_test.ino
+#define MEGA_RX_PIN  23   // ESP32 GPIO23 (RX2) ← Mega Pin 18 (TX1)
+#define MEGA_TX_PIN  27   // ESP32 GPIO27 (TX2) → Mega Pin 19 (RX1)
 #define MEGA_BAUD    9600
 
 // ======================== USB SERIAL TO PC ========================

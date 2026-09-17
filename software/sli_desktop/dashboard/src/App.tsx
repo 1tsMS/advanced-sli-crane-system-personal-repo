@@ -149,9 +149,9 @@ export default function App() {
                   </div>
                   {/* Gauges */}
                   <div className="gauges-row">
-                    <Gauge value={frame?.loadPercent ?? 0} max={120} label="Load" unit="%" size={80} />
-                    <Gauge value={frame?.boomAngle ?? 0} max={80} label="Boom" unit="°" color="#00D68F" size={80} />
-                    <Gauge value={Math.abs(frame?.imuRoll ?? 0)} max={15} label="Tilt" unit="°" color="#F5A623" size={80} />
+                    <Gauge value={frame?.loadPercent ?? 0} max={120} label="Load" unit="%" size={105} />
+                    <Gauge value={frame?.boomAngle ?? 0} max={80} label="Boom" unit="°" color="#00D68F" size={105} />
+                    <Gauge value={Math.abs(frame?.imuRoll ?? 0)} max={15} label="Tilt" unit="°" color="#F5A623" size={105} />
                   </div>
                 </div>
 

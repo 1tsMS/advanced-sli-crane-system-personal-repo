@@ -99,17 +99,17 @@ export function SettingsTab({ wsConnected }: SettingsTabProps) {
             <button
               className="btn-ghost"
               onClick={fetchPorts}
-              style={{ padding: "5px 8px", flexShrink: 0 }}
+              style={{ padding: "8px 12px", flexShrink: 0 }}
               title="Refresh ports"
             >
-              <RefreshCcw size={12} />
+              <RefreshCcw size={14} />
             </button>
           </div>
 
-          {/* Port description — separate row to prevent overflow */}
+          {/* Port description */}
           {selectedPort && (
             <div style={{
-              fontSize: 10, color: "var(--text-muted)", paddingLeft: 78,
+              fontSize: 11.5, color: "var(--text-secondary)", paddingLeft: 92,
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}>
               {ports.find(p => p.port === selectedPort)?.description ?? ""}
@@ -135,7 +135,7 @@ export function SettingsTab({ wsConnected }: SettingsTabProps) {
           </div>
 
           {msg && (
-            <div style={{ fontSize: 10, color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+            <div style={{ fontSize: 12, color: "var(--cyan)", fontFamily: "var(--font-mono)", marginTop: 4 }}>
               {msg}
             </div>
           )}
@@ -147,20 +147,20 @@ export function SettingsTab({ wsConnected }: SettingsTabProps) {
           <div className="status-rows">
             <StatusRow
               label="WebSocket"
-              icon={wsConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
+              icon={wsConnected ? <Wifi size={15} /> : <WifiOff size={15} />}
               value={wsConnected ? "Connected" : "Disconnected"}
               ok={wsConnected}
             />
             <StatusRow
               label="ESP32 Serial"
-              icon={isConn ? <PlugZap size={12} /> : <Unplug size={12} />}
+              icon={isConn ? <PlugZap size={15} /> : <Unplug size={15} />}
               value={isConn ? `${status?.port}` : "Not connected"}
               ok={isConn}
             />
             {isConn && (
               <>
-                <StatusRow label="Baud" value={`${status?.baudRate ?? "—"}`} ok={true} />
-                <StatusRow label="RX Rate" value={`${status?.rxRate?.toFixed(1) ?? "—"} pkt/s`} ok={true} />
+                <StatusRow label="Baud Rate" value={`${status?.baudRate ?? "—"}`} ok={true} />
+                <StatusRow label="RX Throughput" value={`${status?.rxRate?.toFixed(1) ?? "—"} pkt/s`} ok={true} />
               </>
             )}
             <StatusRow
@@ -170,12 +170,12 @@ export function SettingsTab({ wsConnected }: SettingsTabProps) {
             />
           </div>
 
-          <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+          <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
             <div className="section-label">Endpoints</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}>
-              <span>REST  → http://localhost:8000/api</span>
-              <span>WS    → ws://localhost:8000/ws/telemetry</span>
-              <span>Docs  → http://localhost:8000/docs</span>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--text-secondary)" }}>
+              <span>REST  → <strong style={{ color: "var(--cyan)" }}>http://localhost:8000/api</strong></span>
+              <span>WS    → <strong style={{ color: "var(--cyan)" }}>ws://localhost:8000/ws/telemetry</strong></span>
+              <span>Docs  → <strong style={{ color: "var(--text-primary)" }}>http://localhost:8000/docs</strong></span>
             </div>
           </div>
         </div>

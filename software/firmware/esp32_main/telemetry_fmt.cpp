@@ -47,7 +47,7 @@ void TelemetryFormatter::formatDebugReport(
         "$D,I2C2,0x%02X,%s\n", AS5600_ADDR, teleOK ? "OK" : "FAIL");
 
     pos += snprintf(buffer + pos, bufLen - pos,
-        "$D,I2C2,0x%02X,%s\n", MPU6050_ADDR, mpuOK ? "OK" : "FAIL");
+        "$D,I2C0,0x%02X,%s\n", MPU6050_ADDR, mpuOK ? "OK" : "FAIL");
 
     pos += snprintf(buffer + pos, bufLen - pos,
         "$D,HX711,%s\n", hx711OK ? "OK" : "FAIL");

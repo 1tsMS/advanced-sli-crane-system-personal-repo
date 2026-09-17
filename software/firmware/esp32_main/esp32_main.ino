@@ -70,7 +70,7 @@ void setup() {
     Wire1.setClock(400000);
     Serial.println("OK");
 
-    Serial.print("Init I2C Bus 2 (Tele+IMU, Software)... ");
+    Serial.print("Init I2C Bus 2 (Tele, Software)... ");
     softI2C.begin();
     Serial.println("OK");
 

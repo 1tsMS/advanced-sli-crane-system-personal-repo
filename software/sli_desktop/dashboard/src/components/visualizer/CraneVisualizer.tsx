@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import type { TelemetryFrame } from "../../types";
 
 interface CraneVisualizerProps {
@@ -6,261 +6,487 @@ interface CraneVisualizerProps {
 }
 
 /**
- * Clean side-view crane boom visualizer.
+ * Industrial-grade 2D Crane Boom & Telemetry Visualizer
  *
- * Renders:
- *   - Slotted turret base (simple rect)
- *   - Main boom arm (rotates by boomAngle, expands with extensionMM)
- *   - Telescope section inner boom (lighter overlay)
- *   - Rope + hook hanging from boom tip
- *   - Angle arc + label
- *   - Swing indicator (arc at base)
- *   - Safe zone envelope (arc at max radius) — green/amber/red
+ * Features:
+ * - Dynamic container observation (ResizeObserver) for crisp, non-blurry, uncropped rendering
+ * - High-DPI (Retina) scaling support
+ * - Mathematically bounded coordinate system: boom & envelopes NEVER clip
+ * - Turntable base with counterweight & slew pivot
+ * - Hydraulic luffing cylinder connecting superstructure to boom
+ * - Telescoping boom sections with extension readout
+ * - Wire rope with industrial crane hook block
+ * - Angle arc with bold readout
+ * - Operating radius indicator line
+ * - Safe load envelope arc (color-coded by alarm status)
  */
 export function CraneVisualizer({ frame }: CraneVisualizerProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 480, height: 320 });
 
+  // Dynamically observe container dimensions
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const ro = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 50 && height > 50) {
+          setDimensions({
+            width: Math.floor(width),
+            height: Math.floor(height)
+          });
+        }
+      }
+    });
+
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Draw scene
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const W = canvas.width;
-    const H = canvas.height;
+    const { width: W, height: H } = dimensions;
+    const dpr = window.devicePixelRatio || 1;
 
-    const boomAngle   = frame?.boomAngle   ?? 50;   // degrees from horizontal
-    const extMM       = frame?.extensionMM ?? 0;
-    const ropeLength  = frame?.ropeLength  ?? 500;
-    const swingAngle  = frame?.swingAngle  ?? 0;
-    const alarmLevel  = frame?.alarmLevel  ?? 0;
+    // Adjust canvas resolution for crisp lines on high-DPI
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    canvas.style.width = `${W}px`;
+    canvas.style.height = `${H}px`;
 
-    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    ctx.scale(dpr, dpr);
 
-    // ---- Background ----
-    ctx.fillStyle = "#080A0E";
+    // Telemetry values
+    const boomAngle = Math.max(0, Math.min(85, frame?.boomAngle ?? 45)); // clamp to reasonable crane bounds
+    const extMM = Math.max(0, frame?.extensionMM ?? 0);
+    const ropeLength = Math.max(100, frame?.ropeLength ?? 500);
+    const alarmLevel = frame?.alarmLevel ?? 0;
+    const actualLoad = frame?.actualLoad ?? 0;
+    const safeLimit = frame?.safeLoadLimit ?? 5.0;
+
+    // --- Palette ---
+    const colorSafe = "#00D68F";
+    const colorWarn = "#F5A623";
+    const colorDanger = "#FF3B3B";
+    const statusColor = alarmLevel >= 2 ? colorDanger : alarmLevel === 1 ? colorWarn : colorSafe;
+    const cyanAccent = "#00D4FF";
+
+    // --- Layout Geometry ---
+    // Pivot positioned at right-center so boom elevates and reaches toward the left
+    const pivX = Math.round(W * 0.74);
+    const pivY = Math.round(H * 0.78);
+    const groundY = pivY + 22;
+
+    // Boom length scaling (guaranteed to stay inside canvas)
+    // Horizontal space to left: pivX - 40; Vertical space to top: pivY - 35
+    const maxAllowedBoom = Math.min(pivX - 45, pivY - 35);
+    const baseBoomLen = maxAllowedBoom * 0.72;
+    const maxExtPx = maxAllowedBoom * 0.28;
+    const extRatio = Math.min(extMM / 600, 1); // 600mm max physical extension
+    const currentBoomLen = baseBoomLen + extRatio * maxExtPx;
+
+    const angleRad = (boomAngle * Math.PI) / 180;
+    const boomEndX = pivX - Math.cos(angleRad) * currentBoomLen;
+    const boomEndY = pivY - Math.sin(angleRad) * currentBoomLen;
+
+    // Clear background
+    ctx.fillStyle = "#0A0D14";
     ctx.fillRect(0, 0, W, H);
 
-    // Subtle grid
-    ctx.strokeStyle = "rgba(255,255,255,0.025)";
-    ctx.lineWidth = 0.5;
-    for (let x = 0; x <= W; x += 24) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
-    for (let y = 0; y <= H; y += 24) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
-
-    // ---- Pivot point ----
-    const pivX = W * 0.28;
-    const pivY = H * 0.75;
-
-    // ---- Boom dimensions ----
-    const MAX_BOOM_PX = Math.min(W, H) * 0.58;   // Base boom length in pixels
-    const extFraction = Math.min(extMM / 600, 1); // Assume 600mm max extension
-    const boomPx = MAX_BOOM_PX * (1 + extFraction * 0.4); // 1.0x – 1.4x based on extension
-
-    // Convert boom angle to canvas angle (0° = right, boom goes up-left)
-    const angleRad = (boomAngle * Math.PI) / 180;
-    const boomEndX = pivX + Math.cos(Math.PI - angleRad) * boomPx;
-    const boomEndY = pivY - Math.sin(angleRad) * boomPx;
-
-    // ---- Safe load zone arc ----
-    const safeStroke = alarmLevel === 0 ? "#00D68F" : alarmLevel === 1 ? "#F5A623" : "#FF3B3B";
-
-    ctx.strokeStyle = safeStroke;
+    // --- Engineering CAD Grid ---
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.035)";
     ctx.lineWidth = 1;
-    ctx.setLineDash([3, 4]);
-    ctx.globalAlpha = 0.4;
-    ctx.beginPath();
-    ctx.arc(pivX, pivY, boomPx + 8, -Math.PI, 0);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-    ctx.setLineDash([]);
-
-    // ---- Swing arc at base ----
-    if (Math.abs(swingAngle) > 0.5) {
-      ctx.strokeStyle = "rgba(0,212,255,0.3)";
-      ctx.lineWidth = 1;
-      ctx.setLineDash([2, 3]);
+    const gridSize = 28;
+    for (let x = 0; x <= W; x += gridSize) {
       ctx.beginPath();
-      ctx.arc(pivX, pivY, 28,
-        -Math.PI / 2 - (swingAngle * Math.PI) / 180,
-        -Math.PI / 2
-      );
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
       ctx.stroke();
-      ctx.setLineDash([]);
+    }
+    for (let y = 0; y <= H; y += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
     }
 
-    // ---- Angle arc from horizontal ----
-    ctx.strokeStyle = "rgba(0,212,255,0.2)";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([2, 3]);
+    // --- Ground Line & Bed ---
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(pivX, pivY, 42, Math.PI, Math.PI + angleRad, false);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // ---- Ground line ----
-    ctx.strokeStyle = "rgba(255,255,255,0.07)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, pivY + 18);
-    ctx.lineTo(W, pivY + 18);
+    ctx.moveTo(15, groundY);
+    ctx.lineTo(W - 15, groundY);
     ctx.stroke();
 
-    // ---- Turret base ----
-    // Trapezoid base
-    ctx.fillStyle = "#1A1F2C";
-    ctx.strokeStyle = "rgba(0,212,255,0.25)";
+    // Ground hatch marks
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+    ctx.lineWidth = 1;
+    for (let hx = 20; hx < W - 20; hx += 16) {
+      ctx.beginPath();
+      ctx.moveTo(hx, groundY);
+      ctx.lineTo(hx - 10, groundY + 10);
+      ctx.stroke();
+    }
+
+    // --- Safe Working Envelope Arc ---
+    ctx.save();
+    ctx.strokeStyle = statusColor;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath();
+    ctx.arc(pivX, pivY, currentBoomLen, Math.PI, Math.PI + (85 * Math.PI) / 180);
+    ctx.stroke();
+
+    // Subtle radial sector fill
+    ctx.globalAlpha = 0.04;
+    ctx.fillStyle = statusColor;
+    ctx.beginPath();
+    ctx.moveTo(pivX, pivY);
+    ctx.arc(pivX, pivY, currentBoomLen, Math.PI, Math.PI + (85 * Math.PI) / 180);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // --- Radius Dimension Line ---
+    const radiusPx = pivX - boomEndX;
+    if (radiusPx > 30) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(0, 212, 255, 0.4)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+
+      // Vertical drop line from boom tip to radius line
+      ctx.beginPath();
+      ctx.moveTo(boomEndX, boomEndY);
+      ctx.lineTo(boomEndX, groundY + 18);
+      ctx.stroke();
+
+      // Vertical line under pivot
+      ctx.beginPath();
+      ctx.moveTo(pivX, groundY);
+      ctx.lineTo(pivX, groundY + 18);
+      ctx.stroke();
+
+      // Horizontal dimension line with arrows
+      ctx.setLineDash([]);
+      ctx.strokeStyle = "rgba(0, 212, 255, 0.7)";
+      const dimY = groundY + 14;
+      ctx.beginPath();
+      ctx.moveTo(boomEndX + 4, dimY);
+      ctx.lineTo(pivX - 4, dimY);
+      ctx.stroke();
+
+      // Radius text badge
+      ctx.fillStyle = cyanAccent;
+      ctx.font = "600 10px JetBrains Mono, monospace";
+      ctx.textAlign = "center";
+      const radMeters = ((currentBoomLen * Math.cos(angleRad)) / 250).toFixed(2);
+      ctx.fillText(`R: ${radMeters}m`, (boomEndX + pivX) / 2, dimY - 4);
+      ctx.restore();
+    }
+
+    // --- Crane Pedestal & Machinery House ---
+    // Outrigger/chassis beam
+    ctx.fillStyle = "#141824";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(pivX - 42, groundY - 10, 84, 10, [2, 2, 0, 0]);
+    ctx.fill();
+    ctx.stroke();
+
+    // Counterweight block (rear, to the right)
+    ctx.fillStyle = "#1E2433";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(pivX - 22, pivY + 18);
-    ctx.lineTo(pivX + 22, pivY + 18);
-    ctx.lineTo(pivX + 14, pivY);
-    ctx.lineTo(pivX - 14, pivY);
+    ctx.roundRect(pivX + 8, pivY - 12, 34, 22, 3);
+    ctx.fill();
+    ctx.stroke();
+
+    // Hazard stripes on counterweight
+    ctx.strokeStyle = "rgba(245, 166, 35, 0.4)";
+    ctx.lineWidth = 2;
+    for (let cs = pivX + 14; cs < pivX + 38; cs += 8) {
+      ctx.beginPath();
+      ctx.moveTo(cs, pivY + 8);
+      ctx.lineTo(cs + 6, pivY - 10);
+      ctx.stroke();
+    }
+
+    // Turntable Slewing Pedestal
+    ctx.fillStyle = "#191E2B";
+    ctx.strokeStyle = "rgba(0, 212, 255, 0.35)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(pivX - 22, groundY - 10);
+    ctx.lineTo(pivX + 22, groundY - 10);
+    ctx.lineTo(pivX + 16, pivY - 2);
+    ctx.lineTo(pivX - 16, pivY - 2);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    // Turret circle
-    ctx.fillStyle = "#232938";
-    ctx.strokeStyle = "rgba(0,212,255,0.35)";
-    ctx.lineWidth = 1.5;
+    // --- Hydraulic Luffing Cylinder ---
+    // Cylinder anchor on chassis
+    const cylAnchorX = pivX - 24;
+    const cylAnchorY = groundY - 10;
+    // Cylinder rod attaches to boom at ~36% of base boom length
+    const cylBoomAttachDist = baseBoomLen * 0.36;
+    const cylAttachX = pivX - Math.cos(angleRad) * cylBoomAttachDist;
+    const cylAttachY = pivY - Math.sin(angleRad) * cylBoomAttachDist;
+
+    const cylDx = cylAttachX - cylAnchorX;
+    const cylDy = cylAttachY - cylAnchorY;
+
+    // Barrel (lower 55%)
+    const barrelRatio = 0.55;
+    const barrelEndX = cylAnchorX + cylDx * barrelRatio;
+    const barrelEndY = cylAnchorY + cylDy * barrelRatio;
+
+    // Chrome rod
+    ctx.strokeStyle = "#C4CCD9";
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
     ctx.beginPath();
-    ctx.arc(pivX, pivY, 10, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(cylAnchorX, cylAnchorY);
+    ctx.lineTo(cylAttachX, cylAttachY);
     ctx.stroke();
 
-    // ---- Main boom arm ----
-    const boomColor = alarmLevel === 0 ? "#00D4FF" : alarmLevel === 1 ? "#F5A623" : "#FF3B3B";
-    const boomW = 9;
+    // Outer barrel
+    ctx.strokeStyle = "#1C2333";
+    ctx.lineWidth = 8;
+    ctx.lineCap = "butt";
+    ctx.beginPath();
+    ctx.moveTo(cylAnchorX, cylAnchorY);
+    ctx.lineTo(barrelEndX, barrelEndY);
+    ctx.stroke();
 
-    // Shadow / glow
+    ctx.strokeStyle = "rgba(0, 212, 255, 0.5)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Cylinder pivot pin
+    ctx.fillStyle = cyanAccent;
+    ctx.beginPath();
+    ctx.arc(cylAnchorX, cylAnchorY, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // --- Boom Structure ---
+    const boomWidth = 12;
+
+    // 1. Extendable inner boom section (drawn first, slides inside)
+    if (extRatio > 0.01) {
+      const innerStartRatio = 0.45;
+      const inStartX = pivX - Math.cos(angleRad) * (baseBoomLen * innerStartRatio);
+      const inStartY = pivY - Math.sin(angleRad) * (baseBoomLen * innerStartRatio);
+
+      ctx.save();
+      ctx.strokeStyle = "rgba(220, 235, 255, 0.85)";
+      ctx.lineWidth = boomWidth * 0.65;
+      ctx.lineCap = "square";
+      ctx.beginPath();
+      ctx.moveTo(inStartX, inStartY);
+      ctx.lineTo(boomEndX, boomEndY);
+      ctx.stroke();
+
+      // Extension graduation markings
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.45)";
+      ctx.lineWidth = 1;
+      const inDx = boomEndX - inStartX;
+      const inDy = boomEndY - inStartY;
+      const inLen = Math.sqrt(inDx * inDx + inDy * inDy);
+      for (let s = 14; s < inLen - 6; s += 14) {
+        const t = s / inLen;
+        const px = inStartX + inDx * t;
+        const py = inStartY + inDy * t;
+        const perp = angleRad + Math.PI / 2;
+        ctx.beginPath();
+        ctx.moveTo(px + Math.cos(perp) * 3, py - Math.sin(perp) * 3);
+        ctx.lineTo(px - Math.cos(perp) * 3, py + Math.sin(perp) * 3);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // 2. Base Boom Section (Outer tube)
+    const baseEndX = pivX - Math.cos(angleRad) * baseBoomLen;
+    const baseEndY = pivY - Math.sin(angleRad) * baseBoomLen;
+
     ctx.save();
-    ctx.shadowColor = boomColor;
-    ctx.shadowBlur = 8;
-    ctx.strokeStyle = boomColor;
-    ctx.lineWidth = boomW;
+    // Boom shadow / glow
+    ctx.shadowColor = statusColor;
+    ctx.shadowBlur = alarmLevel >= 1 ? 12 : 6;
+    ctx.strokeStyle = statusColor;
+    ctx.lineWidth = boomWidth;
     ctx.lineCap = "round";
     ctx.beginPath();
     ctx.moveTo(pivX, pivY);
-    ctx.lineTo(boomEndX, boomEndY);
+    ctx.lineTo(baseEndX, baseEndY);
     ctx.stroke();
     ctx.restore();
 
-    // Boom body
-    ctx.strokeStyle = boomColor;
-    ctx.lineWidth = boomW;
+    // Solid inner core
+    ctx.strokeStyle = "#161B26";
+    ctx.lineWidth = boomWidth - 3;
     ctx.lineCap = "round";
-    ctx.globalAlpha = 0.85;
     ctx.beginPath();
     ctx.moveTo(pivX, pivY);
-    ctx.lineTo(boomEndX, boomEndY);
+    ctx.lineTo(baseEndX, baseEndY);
     ctx.stroke();
-    ctx.globalAlpha = 1;
 
-    // Lattice pattern on boom
-    const latticeStep = 14;
-    const boomDx = boomEndX - pivX;
-    const boomDy = boomEndY - pivY;
-    const boomLen = Math.sqrt(boomDx*boomDx + boomDy*boomDy);
-    const boomAngleActual = Math.atan2(boomDy, boomDx);
-    const perp = boomAngleActual + Math.PI / 2;
-
-    ctx.strokeStyle = "rgba(0,0,0,0.4)";
-    ctx.lineWidth = 1;
-    for (let d = latticeStep; d < boomLen - 6; d += latticeStep) {
-      const t = d / boomLen;
-      const mx = pivX + boomDx * t;
-      const my = pivY + boomDy * t;
-      const w = (boomW / 2) * 0.7;
-      ctx.beginPath();
-      ctx.moveTo(mx + Math.cos(perp) * w, my + Math.sin(perp) * w);
-      ctx.lineTo(mx - Math.cos(perp) * w, my - Math.sin(perp) * w);
-      ctx.stroke();
-    }
-
-    // ---- Extension inner boom ----
-    if (extFraction > 0.02) {
-      const innerStart = 0.35; // starts 35% from base
-      const innerX0 = pivX + boomDx * innerStart;
-      const innerY0 = pivY + boomDy * innerStart;
-
-      ctx.strokeStyle = "rgba(255,255,255,0.5)";
-      ctx.lineWidth = 4;
-      ctx.lineCap = "round";
-      ctx.setLineDash([4, 3]);
-      ctx.beginPath();
-      ctx.moveTo(innerX0, innerY0);
-      ctx.lineTo(boomEndX, boomEndY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
-    // ---- Jib head ----
-    ctx.fillStyle = boomColor;
-    ctx.globalAlpha = 0.9;
+    // Collar band at base boom tip
+    ctx.strokeStyle = cyanAccent;
+    ctx.lineWidth = boomWidth + 2;
+    ctx.lineCap = "butt";
     ctx.beginPath();
-    ctx.arc(boomEndX, boomEndY, 4, 0, Math.PI * 2);
+    ctx.moveTo(baseEndX + Math.cos(angleRad) * 4, baseEndY + Math.sin(angleRad) * 4);
+    ctx.lineTo(baseEndX, baseEndY);
+    ctx.stroke();
+
+    // 3. Boom Point Sheave / Head
+    ctx.fillStyle = cyanAccent;
+    ctx.beginPath();
+    ctx.arc(boomEndX, boomEndY, 6, 0, Math.PI * 2);
     ctx.fill();
-    ctx.globalAlpha = 1;
 
-    // ---- Rope ----
-    const maxRopePx = H * 0.25;
-    const ropePx = Math.min((ropeLength / 2000) * maxRopePx, maxRopePx);
-
-    ctx.strokeStyle = "rgba(200,210,230,0.5)";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([]);
+    ctx.fillStyle = "#0A0D14";
     ctx.beginPath();
-    ctx.moveTo(boomEndX, boomEndY);
-    ctx.lineTo(boomEndX, boomEndY + ropePx);
-    ctx.stroke();
+    ctx.arc(boomEndX, boomEndY, 2.5, 0, Math.PI * 2);
+    ctx.fill();
 
-    // Hook
+    // --- Wire Rope & Hook Block ---
+    // Rope length clamped to fit visually
+    const maxVisualRope = Math.max(30, groundY - boomEndY - 20);
+    const ropePx = Math.min(Math.max(25, (ropeLength / 1200) * maxVisualRope), maxVisualRope);
     const hookX = boomEndX;
     const hookY = boomEndY + ropePx;
-    ctx.strokeStyle = "#F5A623";
+
+    // Wire rope
+    ctx.strokeStyle = "rgba(220, 230, 245, 0.75)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(hookX, hookY + 4, 4, 0, Math.PI * 1.7);
+    ctx.moveTo(boomEndX, boomEndY + 4);
+    ctx.lineTo(hookX, hookY);
     ctx.stroke();
 
-    // ---- Labels ----
-    ctx.fillStyle = "rgba(0,212,255,0.7)";
-    ctx.font = "500 10px Inter, sans-serif";
+    // Hook Block & Pulley
+    ctx.fillStyle = "#2A3142";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(hookX - 5, hookY, 10, 10, 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Hook loop & tip
+    ctx.strokeStyle = "#F5A623";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(hookX, hookY + 14, 5, 0, Math.PI * 1.5);
+    ctx.stroke();
+
+    // Load indicator at hook
+    if (actualLoad > 0.05) {
+      ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+      ctx.font = "bold 10px JetBrains Mono, monospace";
+      ctx.textAlign = "left";
+      ctx.fillText(`${actualLoad.toFixed(2)} kg`, hookX + 10, hookY + 12);
+    }
+
+    // --- Main Turntable Pivot Pin ---
+    ctx.fillStyle = "#1E2638";
+    ctx.strokeStyle = cyanAccent;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(pivX, pivY, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = cyanAccent;
+    ctx.beginPath();
+    ctx.arc(pivX, pivY, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // --- Boom Angle Sector Arc & Badge ---
+    const arcRadius = 46;
+    ctx.save();
+    ctx.strokeStyle = cyanAccent;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(pivX, pivY, arcRadius, Math.PI, Math.PI + angleRad);
+    ctx.stroke();
+
+    // Angle text badge on arc
+    const midAngle = Math.PI + angleRad * 0.5;
+    const badgeX = pivX + Math.cos(midAngle) * (arcRadius + 18);
+    const badgeY = pivY + Math.sin(midAngle) * (arcRadius + 18);
+
+    ctx.fillStyle = "rgba(10, 15, 25, 0.85)";
+    ctx.strokeStyle = "rgba(0, 212, 255, 0.4)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(badgeX - 22, badgeY - 9, 44, 18, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.font = "bold 11px JetBrains Mono, monospace";
     ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${boomAngle.toFixed(1)}°`, badgeX, badgeY);
+    ctx.restore();
 
-    // Angle label on arc
-    const arcLabelR = 55;
-    const arcLabelAngle = Math.PI + angleRad * 0.5;
-    ctx.fillText(
-      `${boomAngle.toFixed(1)}°`,
-      pivX + Math.cos(arcLabelAngle) * arcLabelR,
-      pivY + Math.sin(arcLabelAngle) * arcLabelR + 3
-    );
+    // --- Top Overlay Info Badges ---
+    // Safe load status badge
+    ctx.save();
+    const loadPct = safeLimit > 0 ? (actualLoad / safeLimit) * 100 : 0;
+    ctx.font = "600 11px Inter, sans-serif";
+    ctx.fillStyle = statusColor;
+    ctx.textAlign = "left";
+    ctx.fillText(`● SWL: ${safeLimit.toFixed(1)}kg (${loadPct.toFixed(0)}%)`, 16, 24);
 
-    // Extension label near tip
-    if (extFraction > 0.05) {
-      ctx.fillStyle = "rgba(255,255,255,0.35)";
-      ctx.font = "9px JetBrains Mono, monospace";
-      const midBoomX = pivX + boomDx * 0.65;
-      const midBoomY = pivY + boomDy * 0.65 - 10;
-      ctx.fillText(`+${extMM.toFixed(0)}mm`, midBoomX, midBoomY);
+    if (extMM > 5) {
+      ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+      ctx.font = "500 10px JetBrains Mono, monospace";
+      ctx.fillText(`EXT: +${extMM.toFixed(0)}mm`, 16, 40);
     }
+    ctx.restore();
 
-    // Swing label
-    if (Math.abs(swingAngle) > 0.5) {
-      ctx.fillStyle = "rgba(0,212,255,0.5)";
-      ctx.font = "9px Inter, sans-serif";
-      ctx.fillText(`⟳ ${swingAngle.toFixed(1)}°`, pivX, pivY - 32);
-    }
-
-  }, [frame]);
+    ctx.restore();
+  }, [dimensions, frame]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={320}
-      height={240}
-      className="crane-canvas"
-    />
+    <div
+      ref={containerRef}
+      style={{
+        width: "100%",
+        height: "100%",
+        minHeight: 220,
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden"
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        style={{
+          display: "block",
+          borderRadius: 6
+        }}
+      />
+    </div>
   );
 }
