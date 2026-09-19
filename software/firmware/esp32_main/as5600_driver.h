@@ -50,10 +50,11 @@ private:
     bool      _connected;
     uint16_t  _offset;
     float     _lastAngle;
-    int32_t   _revolutions = 0;
+    float     _continuousAngle = 0.0f;
     bool      _isFirstRead = true;
     uint16_t  _lastRawAngle = 0;
     uint8_t   _missCount = 0;
+    uint32_t  _glitchCount = 0;
 
     // Register addresses
     static const uint8_t REG_RAW_ANGLE = 0x0C;  // 12-bit raw angle (high + low)

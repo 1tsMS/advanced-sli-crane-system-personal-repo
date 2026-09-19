@@ -56,6 +56,8 @@ struct ParsedCommand {
     int8_t       boomInv;     // 0 or 1
     int8_t       tiltAxis;    // 0=X, 1=Y, 2=Z
     int8_t       tiltInv;     // 0 or 1
+    float        teleScale;   // Filled for CAL_RESET_TELE (scale in mm/rev)
+    int8_t       teleInvert;  // Filled for CAL_RESET_TELE (0=normal, 1=inverted, -1=keep)
 };
 
 class GCodeParser {
@@ -77,6 +79,11 @@ private:
      * @return the number, or defaultVal if not found
      */
     int extractParam(const char* line, char prefix, int defaultVal);
+
+    /**
+     * Extract a floating point parameter from the line.
+     */
+    float extractFloatParam(const char* line, char prefix, float defaultVal);
 };
 
 #endif // GCODE_PARSER_H

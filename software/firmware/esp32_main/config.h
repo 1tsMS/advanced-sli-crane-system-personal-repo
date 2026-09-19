@@ -91,8 +91,13 @@
 #define ROPE_MM_PER_TICK  ((PI * ROPE_DRUM_DIAMETER_MM) / N20_TICKS_PER_REV)
 
 // Telescope AS5600: mm of linear travel per full encoder revolution
-// Depends on your lead screw pitch / rack-pinion ratio — measure and adjust!
-#define TELE_MM_PER_REVOLUTION  8.0f
+// Calibrated from physical test: 50mm actual = 2.625 revs (-21mm at 8mm/rev) -> 19.048 mm/rev
+#define TELE_MM_PER_REVOLUTION  19.048f
+#define TELE_DEFAULT_INVERT     true
+
+// Crane physical geometry
+#define BASE_BOOM_LENGTH_MM     225.0f   // 22.5 cm physical base boom
+
 
 // ======================== SHARED DATA STRUCTURES ========================
 

@@ -118,10 +118,7 @@ void commandTask(void* pvParameters) {
                                 Serial.println("$ACK,CAL1,IMU_ZEROED");
                                 break;
                             case CAL_RESET_TELE:
-                                if (_teleEnc) {
-                                    _teleEnc->setZero();
-                                    Serial.println("$ACK,CAL2,TELE_RESET");
-                                }
+                                sensorTask_resetTelescope(cmd.teleScale, cmd.teleInvert);
                                 break;
                         }
                         break;

@@ -263,7 +263,7 @@ export default function App() {
 
           {/* ===== DEBUG & CALIBRATE ===== */}
           {tab === "debug" && (
-            <DebugTab debugReport={debugReport} lastAck={lastAck} />
+            <DebugTab debugReport={debugReport} lastAck={lastAck} frame={frame} />
           )}
 
           {/* ===== SETTINGS ===== */}

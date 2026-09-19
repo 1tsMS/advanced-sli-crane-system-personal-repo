@@ -21,8 +21,8 @@ export function TelemetryPanel({ frame: f }: TelemetryPanelProps) {
   const roll = f?.imuRoll ?? 0;
   const pitch = f?.imuPitch ?? 0;
 
-  // Operating radius calculated from boom length & angle (nominal base boom 1.5m)
-  const nominalBoomM = 1.5 + (extMM / 1000);
+  // Operating radius calculated from real base boom (22.5cm = 0.225m) + telescope extension
+  const nominalBoomM = (225 + Math.max(0, extMM)) / 1000;
   const operatingRadiusM = nominalBoomM * Math.cos((boomAngle * Math.PI) / 180);
 
   // Status classification

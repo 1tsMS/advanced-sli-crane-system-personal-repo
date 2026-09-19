@@ -47,4 +47,11 @@ void sensorTask_requestIMUCalibration(uint8_t boomSrc, bool boomInv, uint8_t til
 /** Load calibration offsets and axis settings from NVS flash */
 void sensorTask_loadCalibration();
 
+/** Reset telescope encoder zero, optionally updating scale and invert direction.
+ *  @param scale   Custom mm per revolution (0 = keep current)
+ *  @param invert  Inversion flag: 0=normal, 1=inverted, -1=keep current
+ */
+void sensorTask_resetTelescope(float scale = 0.0f, int8_t invert = -1);
+
 #endif // SENSOR_TASK_H
+

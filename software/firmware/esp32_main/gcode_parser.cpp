@@ -65,7 +65,12 @@ ParseResult GCodeParser::parse(const char* line, ParsedCommand* out) {
                 out->tiltInv  = (int8_t)extractParam(line, 'Q', 0);
                 return PARSE_OK;
             }
-            case '2': out->calType = CAL_RESET_TELE; return PARSE_OK;
+            case '2': {
+                out->calType    = CAL_RESET_TELE;
+                out->teleScale  = extractFloatParam(line, 'S', 0.0f);
+                out->teleInvert = (int8_t)extractParam(line, 'I', -1);
+                return PARSE_OK;
+            }
             default:  return PARSE_INVALID_PARAMS;
         }
     }
@@ -104,6 +109,21 @@ int GCodeParser::extractParam(const char* line, char prefix, int defaultVal) {
             while (*p == ' ') p++;
             if (isdigit(*p) || *p == '-') {
                 return atoi(p);
+            }
+        }
+        p++;
+    }
+    return defaultVal;
+}
+
+float GCodeParser::extractFloatParam(const char* line, char prefix, float defaultVal) {
+    const char* p = line;
+    while (*p) {
+        if (toupper(*p) == toupper(prefix)) {
+            p++;
+            while (*p == ' ') p++;
+            if (isdigit(*p) || *p == '-' || *p == '.') {
+                return (float)atof(p);
             }
         }
         p++;

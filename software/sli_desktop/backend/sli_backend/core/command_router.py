@@ -20,7 +20,7 @@ _VALID_PATTERNS = [
     re.compile(r"^M0\s+A[1-4]$"),                                    # Stop axis
     re.compile(r"^CAL0$"),                                           # Tare load cell
     re.compile(r"^CAL1(\s+B[012])?(\s+I[01])?(\s+T[012])?(\s+Q[01])?$"),  # IMU cal (with optional axis/invert params)
-    re.compile(r"^CAL2$"),                                           # Reset telescope
+    re.compile(r"^CAL2(\s+S[\d.]+)?(\s+I[01])?$"),                 # Reset telescope (with optional scale and invert)
     re.compile(r"^DBG$"),                                            # Debug request
     re.compile(r"^CFG\s+RATE\s+\d+$"),                              # Config rate
     re.compile(r"^LC\s+UPLOAD\s+\d+$"),                             # Load chart upload start

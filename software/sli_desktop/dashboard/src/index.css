@@ -1120,6 +1120,186 @@ button {
   color: var(--cyan);
 }
 
+/* Buttons */
+.btn-primary {
+  padding: 5px 12px;
+  background: var(--cyan-dim);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-sm);
+  color: var(--cyan);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.btn-primary:hover:not(:disabled) {
+  background: rgba(0, 212, 255, 0.22);
+  border-color: var(--cyan);
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+}
+.btn-primary:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border-light);
+  color: var(--text-primary);
+}
+.btn-ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Telescope Calibration Styles */
+.tele-cal-box {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tele-readout-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #080A0F;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.tele-readout-left {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.tele-val-lg {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.tele-val-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.tele-section-card {
+  padding: 8px 10px;
+  background: rgba(18, 22, 32, 0.7);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tele-section-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tele-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tele-input {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 4px 8px;
+  width: 90px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.tele-input:focus {
+  border-color: var(--cyan);
+}
+
+.tele-jog-btn {
+  flex: 1;
+  min-width: 90px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: all 0.12s ease;
+}
+
+.tele-jog-btn:hover {
+  border-color: rgba(0, 212, 255, 0.4);
+  color: var(--cyan);
+  background: rgba(0, 212, 255, 0.06);
+}
+
+.tele-jog-btn.pressed {
+  background: var(--cyan-dim);
+  border-color: var(--cyan);
+  color: var(--cyan);
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.35);
+  transform: scale(0.97);
+}
+
+.tele-jog-btn.stop {
+  flex: 0 0 32px;
+  min-width: 32px;
+  color: var(--text-muted);
+}
+
+.tele-jog-btn.stop:hover {
+  color: var(--red);
+  border-color: rgba(255, 59, 59, 0.4);
+}
+
 /* Terminal log at bottom */
 .terminal-bar {
   height: 130px;

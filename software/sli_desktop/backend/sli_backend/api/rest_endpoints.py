@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 
 from ..api.models import (
     CommandRequest, ConnectionRequest, LoadChartUpload,
-    StatusResponse, ApiResponse, ImuCalibrateRequest
+    StatusResponse, ApiResponse, ImuCalibrateRequest, TeleCalibrateRequest
 )
 from ..api.ws_endpoint import ws_manager
 
@@ -153,9 +153,25 @@ async def calibrate_imu(req: Optional[ImuCalibrateRequest] = None):
 
 
 @router.post("/calibrate/tele", response_model=ApiResponse)
-async def calibrate_telescope():
-    """Send CAL2 (reset telescope extension) to ESP32."""
-    ok, msg = _command_router.send("CAL2")
+async def calibrate_telescope(req: Optional[TeleCalibrateRequest] = None):
+    """Send CAL2 to ESP32:
+    - Plain CAL2: zeros current position to retracted (0mm)
+    - CAL2 S<scale> I<invert>: tunes scale (mm/rev) and direction inversion in NVS flash
+    """
+    if not _command_router:
+        raise HTTPException(500, "Command router not initialized")
+
+    if req and (req.scale is not None or req.invert is not None):
+        parts = ["CAL2"]
+        if req.scale is not None and req.scale > 0:
+            parts.append(f"S{req.scale:.4f}")
+        if req.invert is not None:
+            parts.append(f"I{1 if req.invert else 0}")
+        cmd = " ".join(parts)
+    else:
+        cmd = "CAL2"
+
+    ok, msg = _command_router.send(cmd)
     return ApiResponse(ok=ok, message=msg)
 
 

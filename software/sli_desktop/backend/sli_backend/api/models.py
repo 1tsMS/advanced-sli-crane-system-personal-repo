@@ -81,6 +81,12 @@ class ImuCalibrateRequest(BaseModel):
     swingInvert: Optional[bool] = False
 
 
+class TeleCalibrateRequest(BaseModel):
+    """Telescope encoder zeroing and scale/invert configuration request."""
+    scale:  Optional[float] = None   # mm per revolution
+    invert: Optional[bool]  = None   # direction inversion flag
+
+
 class ApiResponse(BaseModel):
     """Generic REST API response envelope."""
     ok:      bool

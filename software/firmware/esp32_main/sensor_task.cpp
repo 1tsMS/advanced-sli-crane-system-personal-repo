@@ -42,6 +42,8 @@ static uint8_t _boomSource      = 0;     // 0 = Roll (X) — physical MPU placem
 static uint8_t _tiltSource      = 1;     // 1 = Pitch (Y) — independent from boom
 static bool    _boomInvert      = false;
 static bool    _tiltInvert      = false;
+static float   _teleScale       = TELE_MM_PER_REVOLUTION;
+static bool    _teleInvert      = TELE_DEFAULT_INVERT;
 
 static volatile bool    _reqImuCalibration = false;
 static volatile uint8_t _reqBoomSrc = 0;
@@ -51,24 +53,48 @@ static volatile bool    _reqTiltInv = false;
 
 void sensorTask_saveCalibration() {
     _prefs.begin("sli_imu", false);
-    _prefs.putFloat("b_off", _boomAngleOffset);
-    _prefs.putFloat("t_off", _tiltAngleOffset);
-    _prefs.putUChar("b_src", _boomSource);
-    _prefs.putUChar("t_src", _tiltSource);
-    _prefs.putBool("b_inv",  _boomInvert);
-    _prefs.putBool("t_inv",  _tiltInvert);
+    _prefs.putFloat("b_off",      _boomAngleOffset);
+    _prefs.putFloat("t_off",      _tiltAngleOffset);
+    _prefs.putUChar("b_src",      _boomSource);
+    _prefs.putUChar("t_src",      _tiltSource);
+    _prefs.putBool("b_inv",       _boomInvert);
+    _prefs.putBool("t_inv",       _tiltInvert);
+    _prefs.putFloat("tele_scale", _teleScale);
+    _prefs.putBool("tele_inv",    _teleInvert);
     _prefs.end();
 }
 
 void sensorTask_loadCalibration() {
     _prefs.begin("sli_imu", true);
-    _boomAngleOffset = _prefs.getFloat("b_off", 0.0f);
-    _tiltAngleOffset = _prefs.getFloat("t_off", 0.0f);
-    _boomSource      = _prefs.getUChar("b_src", 0);   // default: Roll (X)
-    _tiltSource      = _prefs.getUChar("t_src", 1);   // default: Pitch (Y)
-    _boomInvert      = _prefs.getBool("b_inv", false);
-    _tiltInvert      = _prefs.getBool("t_inv", false);
+    _boomAngleOffset = _prefs.getFloat("b_off",      0.0f);
+    _tiltAngleOffset = _prefs.getFloat("t_off",      0.0f);
+    _boomSource      = _prefs.getUChar("b_src",      0);   // default: Roll (X)
+    _tiltSource      = _prefs.getUChar("t_src",      1);   // default: Pitch (Y)
+    _boomInvert      = _prefs.getBool("b_inv",       false);
+    _tiltInvert      = _prefs.getBool("t_inv",       false);
+    _teleScale       = _prefs.getFloat("tele_scale", TELE_MM_PER_REVOLUTION);
+    _teleInvert      = _prefs.getBool("tele_inv",    TELE_DEFAULT_INVERT);
     _prefs.end();
+}
+
+void sensorTask_resetTelescope(float scale, int8_t invert) {
+    bool isTuningOnly = (scale > 0.1f || invert >= 0);
+    if (scale > 0.1f) {
+        _teleScale = scale;
+    }
+    if (invert >= 0) {
+        _teleInvert = (invert != 0);
+    }
+    if (!isTuningOnly && _teleEnc) {
+        _teleEnc->setZero();
+        Serial.println("$ACK,CAL2,TELE_ZEROED");
+    } else {
+        Serial.print("$ACK,CAL2,TELE_SAVED,SCALE:");
+        Serial.print(_teleScale, 3);
+        Serial.print(",INV:");
+        Serial.println(_teleInvert ? "1" : "0");
+    }
+    sensorTask_saveCalibration();
 }
 
 void sensorTask_zeroIMU() {
@@ -159,8 +185,9 @@ void sensorTask(void* pvParameters) {
         float ropeLen = _winchEnc ? _winchEnc->getRopeLengthMM() : 0.0f;
 
         // ---- Convert telescope angle to linear extension ----
-        // Full AS5600 rotation (360°) = TELE_MM_PER_REVOLUTION mm
-        float extensionMM = (tele / 360.0f) * TELE_MM_PER_REVOLUTION;
+        // Full AS5600 rotation (360°) = _teleScale mm (calibrated with direction inversion)
+        float rawExtMM = (tele / 360.0f) * _teleScale;
+        float extensionMM = _teleInvert ? -rawExtMM : rawExtMM;
 
         // ---- Write to shared struct under mutex ----
         if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(5)) == pdTRUE) {

@@ -49,26 +49,37 @@ float AS5600Driver::readAngle() {
         return currentAngle;
     }
 
-    // Check for wraps
+    // Shortest angular difference across 0/360 boundary
     float delta = currentAngle - _lastAngle;
-    if (delta > 180.0f) {
-        _revolutions--;
-    } else if (delta < -180.0f) {
-        _revolutions++;
+    if (delta < -180.0f) {
+        delta += 360.0f;
+    } else if (delta > 180.0f) {
+        delta -= 360.0f;
     }
 
+    // Glitch rejection filter:
+    // Sensor task runs at 100Hz (every 10ms).
+    // Physical stepper motor cannot rotate > 45° in 10ms (~750 RPM).
+    // Discard any impossible spike caused by I2C electrical noise.
+    if (fabs(delta) > 45.0f) {
+        _glitchCount++;
+        return _lastAngle;
+    }
+
+    _continuousAngle += delta;
     _lastAngle = currentAngle;
     return currentAngle;
 }
 
 float AS5600Driver::readContinuousAngle() {
-    readAngle(); // Ensures state is updated
-    return (_revolutions * 360.0f) + _lastAngle;
+    readAngle(); // Updates continuousAngle
+    return _continuousAngle;
 }
 
 uint16_t AS5600Driver::readRawAngle() {
     uint16_t value = 0;
-    if (readRegister16(REG_RAW_ANGLE, &value)) {
+    // Read REG_ANGLE (0x0E) which uses AS5600's internal hardware digital filter
+    if (readRegister16(REG_ANGLE, &value)) {
         _lastRawAngle = value;
         _missCount = 0;
         _connected = true;
@@ -83,9 +94,9 @@ uint16_t AS5600Driver::readRawAngle() {
 
 void AS5600Driver::setZero() {
     _offset = readRawAngle();
-    _revolutions = 0;
-    _isFirstRead = true;
     _lastAngle = 0.0f;
+    _continuousAngle = 0.0f;
+    _isFirstRead = true;
 }
 
 bool AS5600Driver::readRegister16(uint8_t reg, uint16_t* outValue) {
@@ -123,11 +134,21 @@ bool AS5600Driver::readRegister16(uint8_t reg, uint16_t* outValue) {
 
         case BUS_SOFT: {
             if (!_softBus) return false;
-            _softBus->beginTransmission(AS5600_ADDR);
-            _softBus->write(reg);
+            if (!_softBus->beginTransmission(AS5600_ADDR)) {
+                _softBus->endTransmission();
+                return false;
+            }
+            if (!_softBus->write(reg)) {
+                _softBus->endTransmission();
+                return false;
+            }
             _softBus->endTransmission();
             if (_softBus->requestFrom(AS5600_ADDR, (uint8_t)2) < 2) return false;
-            *outValue = (((uint16_t)_softBus->read() << 8) | _softBus->read()) & 0x0FFF;
+            uint8_t msb = _softBus->read();
+            uint8_t lsb = _softBus->read();
+            // Discard floating / disconnected readings (all 1s)
+            if (msb == 0xFF && lsb == 0xFF) return false;
+            *outValue = (((uint16_t)msb << 8) | lsb) & 0x0FFF;
             _connected = true;
             return true;
         }

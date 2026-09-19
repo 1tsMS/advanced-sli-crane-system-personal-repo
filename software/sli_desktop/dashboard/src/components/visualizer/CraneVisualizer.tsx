@@ -86,14 +86,27 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     const pivY = Math.round(H * 0.82);
     const groundY = pivY + 20;
 
-    // Boom length scaling (guaranteed to stay inside canvas with enhanced presence)
+    // Physical dimensions & coordinate scaling
+    const BASE_BOOM_MM = 225.0; // 22.5 cm physical constant base boom
     const maxAllowedBoom = Math.min(pivX - 32, pivY - 26);
-    const baseBoomLen = maxAllowedBoom * 0.80;
-    const maxExtPx = maxAllowedBoom * 0.20;
-    const extRatio = Math.min(extMM / 600, 1); // 600mm max physical extension
-    const currentBoomLen = baseBoomLen + extRatio * maxExtPx;
+
+    // Constant Base Boom = 22.5 cm (occupies ~64% of available boom space)
+    const baseBoomLen = Math.round(maxAllowedBoom * 0.64);
+    const pxPerMM = baseBoomLen / BASE_BOOM_MM;
+
+    // Extension in mm (clamped positive for rendering; capped to stay inside canvas)
+    const extClampedMM = Math.max(0, extMM);
+    const maxExtAllowedPx = maxAllowedBoom - baseBoomLen;
+    const extPx = Math.min(extClampedMM * pxPerMM, maxExtAllowedPx);
+    const currentBoomLen = baseBoomLen + extPx;
 
     const angleRad = (boomAngle * Math.PI) / 180;
+
+    // Base Boom endpoint (FIXED constant 22.5cm where outer sleeve ends and collar sits)
+    const baseEndX = pivX - Math.cos(angleRad) * baseBoomLen;
+    const baseEndY = pivY - Math.sin(angleRad) * baseBoomLen;
+
+    // Outer Tip of extending section (where pulley sheave & wire rope attach)
     const boomEndX = pivX - Math.cos(angleRad) * currentBoomLen;
     const boomEndY = pivY - Math.sin(angleRad) * currentBoomLen;
 
@@ -157,6 +170,8 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     ctx.restore();
 
     // --- Radius Dimension Line ---
+    const currentTotalM = (BASE_BOOM_MM + extClampedMM) / 1000;
+    const radMeters = (currentTotalM * Math.cos(angleRad)).toFixed(2);
     const radiusPx = pivX - boomEndX;
     if (radiusPx > 30) {
       ctx.save();
@@ -189,7 +204,6 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
       ctx.fillStyle = cyanAccent;
       ctx.font = "600 10px JetBrains Mono, monospace";
       ctx.textAlign = "center";
-      const radMeters = ((currentBoomLen * Math.cos(angleRad)) / 250).toFixed(2);
       ctx.fillText(`R: ${radMeters}m`, (boomEndX + pivX) / 2, dimY - 4);
       ctx.restore();
     }
@@ -240,7 +254,7 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     // Cylinder anchor on chassis
     const cylAnchorX = pivX - 26;
     const cylAnchorY = groundY - 11;
-    // Cylinder rod attaches to boom at ~38% of base boom length
+    // Cylinder rod attaches to the fixed base boom at ~38% of base length
     const cylBoomAttachDist = baseBoomLen * 0.38;
     const cylAttachX = pivX - Math.cos(angleRad) * cylBoomAttachDist;
     const cylAttachY = pivY - Math.sin(angleRad) * cylBoomAttachDist;
@@ -281,49 +295,83 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     ctx.arc(cylAnchorX, cylAnchorY, 3.5, 0, Math.PI * 2);
     ctx.fill();
 
-    // --- Boom Structure ---
-    const boomWidth = 15;
+    // --- Boom Structure (Base Boom 22.5cm + Extending Section) ---
+    const boomWidth = 16;
+    const innerWidth = 10;
 
-    // 1. Extendable inner boom section (drawn first, slides inside)
-    if (extRatio > 0.01) {
-      const innerStartRatio = 0.45;
-      const inStartX = pivX - Math.cos(angleRad) * (baseBoomLen * innerStartRatio);
-      const inStartY = pivY - Math.sin(angleRad) * (baseBoomLen * innerStartRatio);
-
-      ctx.save();
-      ctx.strokeStyle = "rgba(220, 235, 255, 0.85)";
-      ctx.lineWidth = boomWidth * 0.68;
-      ctx.lineCap = "square";
-      ctx.beginPath();
-      ctx.moveTo(inStartX, inStartY);
-      ctx.lineTo(boomEndX, boomEndY);
-      ctx.stroke();
-
-      // Extension graduation markings
-      ctx.strokeStyle = "rgba(0, 0, 0, 0.45)";
-      ctx.lineWidth = 1;
-      const inDx = boomEndX - inStartX;
-      const inDy = boomEndY - inStartY;
-      const inLen = Math.sqrt(inDx * inDx + inDy * inDy);
-      for (let s = 14; s < inLen - 6; s += 14) {
-        const t = s / inLen;
-        const px = inStartX + inDx * t;
-        const py = inStartY + inDy * t;
-        const perp = angleRad + Math.PI / 2;
-        ctx.beginPath();
-        ctx.moveTo(px + Math.cos(perp) * 3, py - Math.sin(perp) * 3);
-        ctx.lineTo(px - Math.cos(perp) * 3, py + Math.sin(perp) * 3);
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
-
-    // 2. Base Boom Section (Outer tube)
-    const baseEndX = pivX - Math.cos(angleRad) * baseBoomLen;
-    const baseEndY = pivY - Math.sin(angleRad) * baseBoomLen;
+    // 1. Extendable inner boom section (slides inside base boom and extends out past baseEndX)
+    const innerInsideDist = baseBoomLen * 0.45;
+    const inStartX = pivX - Math.cos(angleRad) * innerInsideDist;
+    const inStartY = pivY - Math.sin(angleRad) * innerInsideDist;
 
     ctx.save();
-    // Boom shadow / glow
+    // Inner boom metallic body (precision chrome / alloy)
+    ctx.strokeStyle = "rgba(225, 238, 255, 0.95)";
+    ctx.lineWidth = innerWidth;
+    ctx.lineCap = "square";
+    ctx.beginPath();
+    ctx.moveTo(inStartX, inStartY);
+    ctx.lineTo(boomEndX, boomEndY);
+    ctx.stroke();
+
+    // Subtle metallic chrome core
+    ctx.strokeStyle = "#FFFFFF";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(
+      inStartX - Math.sin(angleRad) * 2,
+      inStartY + Math.cos(angleRad) * 2
+    );
+    ctx.lineTo(
+      boomEndX - Math.sin(angleRad) * 2,
+      boomEndY + Math.cos(angleRad) * 2
+    );
+    ctx.stroke();
+
+    // Millimeter graduation markings along the exposed extending section
+    if (extPx > 6) {
+      ctx.strokeStyle = "rgba(15, 23, 42, 0.65)";
+      ctx.lineWidth = 1;
+      const exposedDist = currentBoomLen - baseBoomLen;
+      const tickSpacingPx = Math.max(7, pxPerMM * 10);
+      for (let s = 6; s < exposedDist - 4; s += tickSpacingPx) {
+        const d = baseBoomLen + s;
+        const tx = pivX - Math.cos(angleRad) * d;
+        const ty = pivY - Math.sin(angleRad) * d;
+        const perp = angleRad + Math.PI / 2;
+        ctx.beginPath();
+        ctx.moveTo(tx + Math.cos(perp) * 4, ty - Math.sin(perp) * 4);
+        ctx.lineTo(tx - Math.cos(perp) * 4, ty + Math.sin(perp) * 4);
+        ctx.stroke();
+      }
+
+      // Extension callout badge floating above the extended portion
+      if (extClampedMM >= 5) {
+        const calloutD = baseBoomLen + (exposedDist * 0.5);
+        const perp = angleRad + Math.PI / 2;
+        const calloutX = pivX - Math.cos(angleRad) * calloutD + Math.cos(perp) * 16;
+        const calloutY = pivY - Math.sin(angleRad) * calloutD - Math.sin(perp) * 16;
+
+        ctx.fillStyle = "rgba(10, 18, 30, 0.88)";
+        ctx.strokeStyle = cyanAccent;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(calloutX - 25, calloutY - 8, 50, 16, 3);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = cyanAccent;
+        ctx.font = "bold 9px JetBrains Mono, monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(`+${extClampedMM.toFixed(0)}mm`, calloutX, calloutY);
+      }
+    }
+    ctx.restore();
+
+    // 2. Base Boom Section (Outer tube — FIXED 22.5 cm from pivot to baseEnd)
+    ctx.save();
+    // Base boom shadow / glow
     ctx.shadowColor = statusColor;
     ctx.shadowBlur = alarmLevel >= 1 ? 14 : 7;
     ctx.strokeStyle = statusColor;
@@ -335,7 +383,7 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     ctx.stroke();
     ctx.restore();
 
-    // Solid inner core
+    // Solid inner core of outer boom
     ctx.strokeStyle = "#161B26";
     ctx.lineWidth = boomWidth - 4;
     ctx.lineCap = "round";
@@ -344,16 +392,38 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     ctx.lineTo(baseEndX, baseEndY);
     ctx.stroke();
 
-    // Collar band at base boom tip
+    // Stencil label on the fixed base boom: "22.5cm"
+    ctx.save();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
+    ctx.font = "bold 9px JetBrains Mono, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const midBaseX = pivX - Math.cos(angleRad) * (baseBoomLen * 0.62);
+    const midBaseY = pivY - Math.sin(angleRad) * (baseBoomLen * 0.62);
+    ctx.translate(midBaseX, midBaseY);
+    ctx.rotate(angleRad > Math.PI / 2 ? angleRad - Math.PI : -angleRad);
+    ctx.fillText("22.5cm BASE", 0, 0);
+    ctx.restore();
+
+    // 3. Collar Bushing / Seal at Base Boom Tip (where extending section emerges)
+    ctx.save();
     ctx.strokeStyle = cyanAccent;
-    ctx.lineWidth = boomWidth + 3;
+    ctx.lineWidth = boomWidth + 4;
     ctx.lineCap = "butt";
     ctx.beginPath();
     ctx.moveTo(baseEndX + Math.cos(angleRad) * 4, baseEndY + Math.sin(angleRad) * 4);
     ctx.lineTo(baseEndX, baseEndY);
     ctx.stroke();
 
-    // 3. Boom Point Sheave / Head
+    ctx.strokeStyle = "#FFFFFF";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(baseEndX, baseEndY);
+    ctx.lineTo(baseEndX - Math.cos(angleRad) * 1, baseEndY - Math.sin(angleRad) * 1);
+    ctx.stroke();
+    ctx.restore();
+
+    // 4. Boom Point Sheave / Head (Fixed to the tip of the extending telescope!)
     ctx.fillStyle = cyanAccent;
     ctx.beginPath();
     ctx.arc(boomEndX, boomEndY, 7.5, 0, Math.PI * 2);
@@ -453,7 +523,6 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
     ctx.restore();
 
     // --- Top Overlay Info Badges ---
-    // Safe load status badge
     ctx.save();
     const loadPct = isLoadError ? 0 : (safeLimit > 0 ? (actualLoad / safeLimit) * 100 : 0);
     ctx.font = "600 11px Inter, sans-serif";
@@ -464,11 +533,13 @@ export function CraneVisualizer({ frame }: CraneVisualizerProps) {
       16, 24
     );
 
-    if (extMM > 5) {
-      ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-      ctx.font = "500 10px JetBrains Mono, monospace";
-      ctx.fillText(`EXT: +${extMM.toFixed(0)}mm`, 16, 40);
-    }
+    ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+    ctx.font = "600 10px JetBrains Mono, monospace";
+    const totalBoomCM = (22.5 + (extClampedMM / 10)).toFixed(1);
+    ctx.fillText(
+      `BOOM: 22.5cm ${extClampedMM > 0.5 ? `(+${extClampedMM.toFixed(0)}mm) = ${totalBoomCM}cm` : "(Retracted)"}`,
+      16, 40
+    );
     ctx.restore();
 
     ctx.restore();

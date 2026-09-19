@@ -17,9 +17,9 @@ public:
     /**
      * @param sdaPin  GPIO for SDA line
      * @param sclPin  GPIO for SCL line
-     * @param delayUs Bit timing delay in microseconds (default 5µs ≈ ~100kHz)
+     * @param delayUs Bit timing delay in microseconds (default 8µs ≈ ~60kHz, robust against noise/capacitance)
      */
-    SoftI2C(uint8_t sdaPin, uint8_t sclPin, uint32_t delayUs = 5)
+    SoftI2C(uint8_t sdaPin, uint8_t sclPin, uint32_t delayUs = 8)
         : _sda(sdaPin), _scl(sclPin), _delay(delayUs),
           _rxIndex(0), _rxCount(0) {}
 
