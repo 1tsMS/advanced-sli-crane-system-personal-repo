@@ -1,6 +1,7 @@
 """
 Application-wide configuration and constants.
 """
+import os
 from pathlib import Path
 
 # Serial communication
@@ -12,7 +13,10 @@ WS_HOST = "0.0.0.0"
 WS_PORT = 8765
 
 # REST API
-API_HOST = "0.0.0.0"
+# Localhost only by default: the API drives the motors and has no login, so it
+# must not be reachable from the rest of the Wi-Fi. Set SLI_API_HOST=0.0.0.0
+# to open it up deliberately.
+API_HOST = os.environ.get("SLI_API_HOST", "127.0.0.1")
 API_PORT = 8000
 
 # Telemetry

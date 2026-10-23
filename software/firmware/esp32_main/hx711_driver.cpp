@@ -1,61 +1,72 @@
 // ============================================================
-//  HX711 Driver — Implementation backed by bogde/HX711
+//  HX711 Driver — Implementation (RobTillaart HX711 library)
 // ============================================================
 #include "hx711_driver.h"
 
 void HX711Driver::begin() {
-    _scale.begin(_dt, _sck);
+    // fastProcessor = true: adds the 1 us clock delays the HX711 needs on a
+    // 240 MHz ESP32 (clock-high time must be >= 0.2 us).
+    _scale.begin(_dt, _sck, true);
     _scale.set_scale(HX711_DEFAULT_SCALE);
 
-    // Give HX711 chip time to settle on power up
-    delay(500);
-    _connected = _scale.is_ready();
-
-    if (_connected) {
-        // Tare 20 samples for stable zero offset (matches loadcell_approx.ino)
-        _scale.tare(20);
+    // Wait up to 1 s for the HX711's DOUT to go LOW (it powers up async).
+    // The old delay(500) + is_ready() missed it roughly half the time.
+    if (!_scale.wait_ready_timeout(1000)) {
+        _connected = false;
+        return;
     }
-}
 
-bool HX711Driver::readRaw(int32_t* value) {
-    if (_scale.is_ready()) {
-        _lastRawValue = _scale.read();
-        _connected = true;
-        *value = _lastRawValue;
-        return true;
+    // Discard the first 3 conversions: the HX711 datasheet says the analog
+    // front-end settles in ~400 ms, and the early reads are noisy.
+    for (uint8_t i = 0; i < 3; i++) {
+        if (_scale.wait_ready_timeout(200)) _scale.read();
     }
-    *value = _lastRawValue;
-    return false;
+
+    _connected    = true;
+    _lastSampleMs = millis();
+    // Do NOT auto-tare: a load on the hook at power-up would give a wrong
+    // zero. sensor_task will either restore the saved NVS offset or the
+    // user will send CAL0 explicitly.
 }
 
 float HX711Driver::getWeight() {
-    if (_scale.is_ready()) {
-        _lastRawValue = _scale.read();  // Read raw count directly
-        float w = _scale.get_units(1);
+    if (!_scale.is_ready()) return _lastWeight;   // conversion not finished: cached value
 
-        // Deadband: eliminate sensor noise near zero (matches loadcell_approx.ino)
-        if (w > -0.02f && w < 0.02f) {
-            w = 0.0f;
-        }
-        if (w < 0.0f) {
-            w = 0.0f;
-        }
+    // DOUT is already low, so this read() does not wait
+    const int32_t raw = (int32_t)_scale.read();
+    _lastRawValue = raw;
+    _lastSampleMs = millis();
+    _connected    = true;
 
-        _lastWeight = w;
-        _connected = true;
+    if (_tareTarget > 0) {
+        _tareSum += raw;
+        if (++_tareCount >= _tareTarget) {
+            _scale.set_offset((int32_t)(_tareSum / _tareCount));
+            _tareTarget = 0;
+            _tareDone   = true;
+        }
     }
-    return _lastWeight;
+
+    // Same maths as the library's get_units(), without a second read
+    float w = (float)(raw - _scale.get_offset()) / _scale.get_scale();
+
+    // Deadband: eliminate sensor noise near zero (matches loadcell_approx.ino)
+    if (w > -0.02f && w < 0.02f) w = 0.0f;
+    if (w < 0.0f) w = 0.0f;
+
+    _lastWeight = w;
+    return w;
 }
 
-void HX711Driver::tare(uint8_t samples) {
-    // Wait for sensor ready with a short 500ms safety timeout
-    uint32_t timeout = millis() + 500;
-    while (!_scale.is_ready() && millis() < timeout) {
-        delay(5);
-    }
+void HX711Driver::startTare(uint8_t samples) {
+    _tareSum    = 0.0;
+    _tareCount  = 0;
+    _tareDone   = false;
+    _tareTarget = samples > 0 ? samples : 1;
+}
 
-    if (_scale.is_ready()) {
-        _scale.tare(samples);
-        _connected = true;
-    }
+bool HX711Driver::takeTareDone() {
+    if (!_tareDone) return false;
+    _tareDone = false;
+    return true;
 }

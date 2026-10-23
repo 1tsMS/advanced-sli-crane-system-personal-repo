@@ -1,131 +1,80 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { MotionAxis } from "./useHoldToMove";
 
 const API_BASE = "http://localhost:8000/api";
+const DEADZONE = 0.15;
 
-export type AxisId = 1 | 2 | 3 | 4; // 1=Swing, 2=Lift, 3=Tele, 4=Winch
-
-interface UseGamepadReturn {
-  /** Start a gamepad polling loop. Call once on mount. */
-  startPolling: () => void;
-  stopPolling: () => void;
+interface MotionControl {
+  hold: (axis: MotionAxis, speed: number, dir: 0 | 1) => void;
+  release: (axis: MotionAxis) => void;
 }
 
 /**
- * useGamepad — polls the W3C Gamepad API and maps Xbox controller
- * axes + buttons to motor G-code commands sent to the backend.
+ * Xbox controller (W3C Gamepad API), driven through the same dead-man
+ * hold/release path as the on-screen buttons.
  *
- * Mapping:
- *   Left Stick X   → Swing   (M1)
- *   Left Stick Y   → Boom Lift (M2)
- *   Right Stick Y  → Telescope (M3)
- *   Right Trigger  → Winch Down (M4 D1)
- *   Left Trigger   → Winch Up  (M4 D0)
- *   B Button       → E-Stop (T0)
+ *   Left stick X   -> Swing (M1)        Left stick Y  -> Boom lift (M2, up = D1)
+ *   Right stick Y  -> Telescope (M3)    RT / LT       -> Winch pay out (D1) / wind up (D0)
+ *   B              -> E-stop (once per press)
  *
- * Deadzone: 0.15 (configurable)
- * Speed: axis value (0.0–1.0) × 255, sent raw — ESP32 is the brain.
+ * Speed = stick deflection x the speed slider. Directions use the same D values
+ * as the on-screen buttons; flip a sign below if an axis moves the wrong way.
  */
-export function useGamepad(
-  enabled: boolean,
-  deadzone: number = 0.15
-): UseGamepadReturn {
-  const rafRef = useRef<number | null>(null);
-  const activeAxes = useRef<Map<AxisId, number>>(new Map());
-
-  const sendCommand = useCallback(async (cmd: string) => {
-    try {
-      await fetch(`${API_BASE}/command`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command: cmd }),
-      });
-    } catch {
-      // Silently ignore — not connected
-    }
-  }, []);
-
-  const applyDeadzone = (value: number): number => {
-    return Math.abs(value) < deadzone ? 0 : value;
-  };
-
-  const axisToSpeed = (value: number): number => {
-    return Math.round(Math.abs(value) * 255);
-  };
-
-  const pollGamepad = useCallback(() => {
-    const gamepads = navigator.getGamepads();
-    const gp = gamepads[0]; // Use first connected gamepad
-
-    if (gp) {
-      // Read axes with deadzone
-      const leftX  = applyDeadzone(gp.axes[0]);  // Swing
-      const leftY  = applyDeadzone(gp.axes[1]);  // Boom Lift
-      const rightY = applyDeadzone(gp.axes[3]);  // Telescope
-      const lTrigger = gp.buttons[6]?.value ?? 0; // Left trigger (winch up)
-      const rTrigger = gp.buttons[7]?.value ?? 0; // Right trigger (winch down)
-      const bButton  = gp.buttons[1]?.pressed ?? false; // B = E-stop
-
-      // E-STOP button — highest priority
-      if (bButton) {
-        sendCommand("T0");
-      }
-
-      // Swing (Axis 1)
-      handleAxis(1, leftX, leftX > 0 ? 1 : 0);
-      // Boom Lift (Axis 2) — Y axis inverted (up = negative on stick)
-      handleAxis(2, leftY, leftY > 0 ? 1 : 0);
-      // Telescope (Axis 3)
-      handleAxis(3, rightY, rightY > 0 ? 1 : 0);
-
-      // Winch (Axis 4) — use triggers
-      const winchValue = rTrigger > deadzone ? rTrigger : (lTrigger > deadzone ? -lTrigger : 0);
-      handleAxis(4, winchValue, winchValue > 0 ? 1 : 0);
-    }
-
-    rafRef.current = requestAnimationFrame(pollGamepad);
-  }, [sendCommand, deadzone]);
-
-  const handleAxis = (
-    axis: AxisId,
-    value: number,
-    direction: 0 | 1
-  ) => {
-    const speed = axisToSpeed(value);
-    const prevSpeed = activeAxes.current.get(axis) ?? 0;
-
-    if (speed === 0 && prevSpeed !== 0) {
-      // Axis returned to center — stop it
-      sendCommand(`M0 A${axis}`);
-      activeAxes.current.set(axis, 0);
-    } else if (speed > 0) {
-      // Send only if speed changed meaningfully (> 5 units)
-      if (Math.abs(speed - prevSpeed) > 5) {
-        sendCommand(`M${axis} S${speed} D${direction}`);
-        activeAxes.current.set(axis, speed);
-      }
-    }
-  };
-
-  const startPolling = useCallback(() => {
-    if (!enabled) return;
-    rafRef.current = requestAnimationFrame(pollGamepad);
-  }, [enabled, pollGamepad]);
-
-  const stopPolling = useCallback(() => {
-    if (rafRef.current !== null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-    // Stop all active axes
-    activeAxes.current.forEach((_, axis) => {
-      sendCommand(`M0 A${axis}`);
-    });
-    activeAxes.current.clear();
-  }, [sendCommand]);
+export function useGamepad(motion: MotionControl, maxSpeed: number) {
+  const [connected, setConnected] = useState(false);
+  const maxSpeedRef = useRef(maxSpeed);
+  const motionRef = useRef(motion);
+  useEffect(() => { maxSpeedRef.current = maxSpeed; }, [maxSpeed]);
+  useEffect(() => { motionRef.current = motion; }, [motion]);
 
   useEffect(() => {
-    return () => stopPolling();
-  }, [stopPolling]);
+    let raf = 0;
+    let bWasDown = false;
+    const active = new Set<MotionAxis>();
 
-  return { startPolling, stopPolling };
+    const drive = (axis: MotionAxis, value: number) => {
+      const m = motionRef.current;
+      if (Math.abs(value) < DEADZONE) {
+        if (active.has(axis)) { active.delete(axis); m.release(axis); }
+        return;
+      }
+      active.add(axis);
+      // Rescale so the speed ramps from 0 at the deadzone edge
+      const mag = (Math.abs(value) - DEADZONE) / (1 - DEADZONE);
+      // Quantise to 50-step increments so small stick wobble doesn't send a new command every frame
+      const speed = Math.max(50, Math.round((mag * maxSpeedRef.current) / 50) * 50);
+      m.hold(axis, speed, value > 0 ? 1 : 0);
+    };
+
+    const tick = () => {
+      const gp = navigator.getGamepads?.()[0];
+      setConnected(prev => (prev !== !!gp ? !!gp : prev));
+      if (gp) {
+        const bDown = gp.buttons[1]?.pressed ?? false;
+        if (bDown && !bWasDown) {
+          fetch(`${API_BASE}/estop`, { method: "POST" }).catch(() => {});
+        }
+        bWasDown = bDown;
+
+        drive(1, gp.axes[0] ?? 0);
+        drive(2, -(gp.axes[1] ?? 0));          // stick up is negative: up = boom up (D1)
+        drive(3, -(gp.axes[3] ?? 0));          // right stick up = extend (D1)
+        const rt = gp.buttons[7]?.value ?? 0;
+        const lt = gp.buttons[6]?.value ?? 0;
+        drive(4, rt > lt ? rt : -lt);          // RT pays out (D1), LT winds up (D0)
+      } else if (active.size) {
+        active.forEach(a => motionRef.current.release(a));
+        active.clear();
+      }
+      raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      active.forEach(a => motionRef.current.release(a));
+    };
+  }, []);
+
+  return { connected };
 }

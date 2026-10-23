@@ -64,13 +64,13 @@ void setup() {
     Serial.print("Init I2C Bus 0 (Wire 21/22)... ");
     Wire.begin(I2C0_SDA, I2C0_SCL);
     Wire.setClock(100000);
-    Wire.setTimeOut(50);
+    Wire.setTimeOut(5);   // AS5600 read < 1 ms at 100 kHz; 50 ms was stalling the sensor loop
     Serial.println("OK");
 
     Serial.print("Init I2C Bus 1 (Wire1 25/26)... ");
     Wire1.begin(I2C1_SDA, I2C1_SCL);
     Wire1.setClock(100000);
-    Wire1.setTimeOut(50);
+    Wire1.setTimeOut(5);
     Serial.println("OK");
 
     Serial.print("Init I2C Bus 2 (SoftI2C 32/33)... ");
@@ -155,6 +155,18 @@ void setup() {
         1                        // Pin to Core 1
     );
 
+    // Core 1: hardware-I2C buses (swing + IMU on bus 0, boom on bus 1). Own task so
+    // an I2C hang (>= 1 s in this core) can't freeze the telescope / load cell loop.
+    xTaskCreatePinnedToCore(
+        sensorTask_hwBus,
+        "HwBusTask",
+        4096,
+        NULL,
+        SENSOR_TASK_PRIORITY - 1,   // below SensorTask: the telescope loop wins the CPU
+        NULL,
+        1
+    );
+
     // Core 0: Telemetry push to PC
     xTaskCreatePinnedToCore(
         telemetryTask,
@@ -177,7 +189,7 @@ void setup() {
         0                         // Pin to Core 0
     );
 
-    Serial.println("=== All tasks started. System ready. ===\n");
+    Serial.print("=== All tasks started. System ready. ===\n\n");   // one write: tasks are running now
 }
 
 // ======================== LOOP ========================

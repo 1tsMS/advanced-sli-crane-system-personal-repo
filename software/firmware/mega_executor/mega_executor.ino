@@ -38,19 +38,30 @@ struct StepperState {
     uint8_t enPin;
     bool    running;
     uint8_t direction;
-    uint16_t speed;        // Delay between steps in microseconds
+    uint32_t speed;        // Delay between steps in microseconds (uint16 overflowed below ~16 steps/s)
     unsigned long lastStepTime;
+    unsigned long lastCmdMs;   // millis() of the last M-command (dead-man watchdog)
 };
+
+// Dead-man: an axis keeps stepping only while its M-command keeps arriving
+// (the dashboard repeats it every 100 ms while held). Same value as the ESP32.
+#define MOTION_TIMEOUT_MS  400
 
 StepperState motors[3] = {
-    {SWING_STEP, SWING_DIR, SWING_EN, false, 0, 1000, 0},  // M1 = Swing
-    {LIFT_STEP,  LIFT_DIR,  LIFT_EN,  false, 0, 1000, 0},   // M2 = Lift
-    {TELE_STEP,  TELE_DIR,  TELE_EN,  false, 0, 1000, 0}    // M3 = Telescope
+    {SWING_STEP, SWING_DIR, SWING_EN, false, 0, 1000, 0, 0},  // M1 = Swing
+    {LIFT_STEP,  LIFT_DIR,  LIFT_EN,  false, 0, 1000, 0, 0},  // M2 = Lift
+    {TELE_STEP,  TELE_DIR,  TELE_EN,  false, 0, 1000, 0, 0}   // M3 = Telescope
 };
 
-// ======================== SERIAL BUFFER ========================
-char cmdBuffer[64];
-int cmdIndex = 0;
+// ======================== SERIAL BUFFERS ========================
+// One line buffer per port: with a shared buffer, a byte arriving on USB
+// in the middle of an ESP32 command would be spliced into that command.
+struct LineBuffer {
+    char buf[64];
+    int  len;
+};
+LineBuffer espLine = { {0}, 0 };
+LineBuffer usbLine = { {0}, 0 };
 
 // ======================== SETUP ========================
 void setup() {
@@ -69,44 +80,48 @@ void setup() {
     Serial1.println("$MEGA,READY");
 }
 
+// ======================== SERIAL INPUT ========================
+void pollSerial(HardwareSerial& port, LineBuffer& line) {
+    while (port.available()) {
+        char c = port.read();
+        if (c == '\n' || c == '\r') {
+            if (line.len > 0) {
+                line.buf[line.len] = '\0';
+                processCommand(line.buf);
+                line.len = 0;
+            }
+        } else if (line.len < (int)sizeof(line.buf) - 1) {
+            line.buf[line.len++] = c;
+        }
+    }
+}
+
 // ======================== MAIN LOOP ========================
 void loop() {
-    // 1. Check for incoming commands from ESP32
-    while (Serial1.available()) {
-        char c = Serial1.read();
-        if (c == '\n' || c == '\r') {
-            if (cmdIndex > 0) {
-                cmdBuffer[cmdIndex] = '\0';
-                processCommand(cmdBuffer);
-                cmdIndex = 0;
-            }
-        } else if (cmdIndex < (int)sizeof(cmdBuffer) - 1) {
-            cmdBuffer[cmdIndex++] = c;
+    // 1. Commands from the ESP32 (UART1), and from USB for direct debugging
+    pollSerial(Serial1, espLine);
+    pollSerial(Serial, usbLine);
+
+    // 2. Dead-man watchdog: stop any axis whose command stream went quiet
+    unsigned long nowMs = millis();
+    for (int i = 0; i < 3; i++) {
+        if (motors[i].running && (nowMs - motors[i].lastCmdMs) > MOTION_TIMEOUT_MS) {
+            motors[i].running = false;
+            Serial.print("WATCHDOG stopped axis "); Serial.println(i + 1);
         }
     }
 
-    // Also accept commands from USB Serial (for direct debugging)
-    while (Serial.available()) {
-        char c = Serial.read();
-        if (c == '\n' || c == '\r') {
-            if (cmdIndex > 0) {
-                cmdBuffer[cmdIndex] = '\0';
-                processCommand(cmdBuffer);
-                cmdIndex = 0;
-            }
-        } else if (cmdIndex < (int)sizeof(cmdBuffer) - 1) {
-            cmdBuffer[cmdIndex++] = c;
-        }
-    }
-
-    // 2. Step any running motors using non-blocking timing
+    // 3. Step any running motors using non-blocking timing
     unsigned long now = micros();
     for (int i = 0; i < 3; i++) {
         if (motors[i].running && (now - motors[i].lastStepTime >= motors[i].speed)) {
             digitalWrite(motors[i].stepPin, HIGH);
             delayMicroseconds(2);  // Minimum pulse width for A4988
             digitalWrite(motors[i].stepPin, LOW);
-            motors[i].lastStepTime = now;
+            // Schedule from the ideal time, not "now", so loop jitter doesn't
+            // slow the axis down; resync if we fell more than one step behind.
+            motors[i].lastStepTime += motors[i].speed;
+            if (now - motors[i].lastStepTime >= motors[i].speed) motors[i].lastStepTime = now;
         }
     }
 }
@@ -141,21 +156,26 @@ void processCommand(const char* cmd) {
 
         // Convert speed (steps/sec) to step delay in microseconds
         // e.g. Speed 500 = 2000µs delay (matches RAMPS_test.ino)
-        if (speed == 0) {
+        if (speed <= 0) {
             motors[idx].running = false;
             return;
         }
 
-        motors[idx].speed = 1000000UL / speed;
+        const bool wasRunning = motors[idx].running;
+        motors[idx].speed = 1000000UL / (unsigned long)speed;
         motors[idx].direction = dir;
         motors[idx].running = true;
+        motors[idx].lastCmdMs = millis();   // feed the dead-man watchdog
+        if (!wasRunning) motors[idx].lastStepTime = micros();
 
         // Set direction pin
         digitalWrite(motors[idx].dirPin, dir ? HIGH : LOW);
 
-        Serial.print("M"); Serial.print(axis);
-        Serial.print(" S"); Serial.print(speed);
-        Serial.print(" D"); Serial.println(dir);
+        if (!wasRunning) {   // repeats arrive every 100 ms: only log starts
+            Serial.print("M"); Serial.print(axis);
+            Serial.print(" S"); Serial.print(speed);
+            Serial.print(" D"); Serial.println(dir);
+        }
     }
 }
 

@@ -11,6 +11,7 @@ import { CraneVisualizer } from "./components/visualizer/CraneVisualizer";
 import { Gauge } from "./components/shared/Gauge";
 import { SettingsTab } from "./components/settings/SettingsTab";
 import { DebugTab } from "./components/debug/DebugTab";
+import { RecordButton } from "./components/controls/RecordButton";
 
 const API_BASE = "http://localhost:8000/api";
 
@@ -41,7 +42,7 @@ export default function App() {
   const [tab, setTab]     = useState<TabId>("dashboard");
   const [speed, setSpeed] = useState(1000);
 
-  const { frame, debugReport, lastAck, wsStatus, espConnected } = useTelemetry();
+  const { frame, debugReport, lastAck, wsStatus, espConnected, recording, refreshStatus } = useTelemetry();
 
   const alarm = frame?.alarmLevel ?? 0;
   const alarmClass = ALARM_CLASS[alarm];
@@ -137,6 +138,8 @@ export default function App() {
           </div>
 
           <div className="header-sep" />
+
+          <RecordButton recording={recording} espConnected={espConnected} onChanged={refreshStatus} />
 
           <button className="estop-btn" id="estop-button" onClick={estop}>
             <Zap size={12} />

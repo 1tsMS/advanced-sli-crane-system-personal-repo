@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import time
 import logging
-from typing import Optional
+from typing import Callable, Optional
 
 import serial
 import serial.tools.list_ports
@@ -27,6 +27,9 @@ class SerialManager:
         self._serial: Optional[serial.Serial] = None
         self._connected: bool = False
         self._read_task: Optional[asyncio.Task] = None
+
+        # Called (once) when the port drops on its own, e.g. USB unplugged
+        self.on_disconnect: Optional[Callable[[str], None]] = None
 
         # Queue of raw ASCII lines from ESP32 — consumed by PacketParser
         self.rx_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=500)
@@ -71,11 +74,17 @@ class SerialManager:
             await self.disconnect()
 
         try:
-            self._serial = serial.Serial(
-                port=port,
-                baudrate=baud,
-                timeout=0.05,   # Non-blocking read with short timeout
-            )
+            # Open WITHOUT toggling DTR/RTS: on ESP32 DevKit boards the
+            # CP2102/CH340 auto-reset circuit pulses EN when DTR/RTS change,
+            # rebooting the MCU on every Connect from the dashboard.
+            ser = serial.Serial()
+            ser.port = port
+            ser.baudrate = baud
+            ser.timeout = 0.05      # read() waits at most 50 ms for the first byte
+            ser.dtr = False
+            ser.rts = False
+            ser.open()
+            self._serial = ser
             self._port = port
             self._baud = baud
             self._connected = True
@@ -122,9 +131,9 @@ class SerialManager:
             self._serial.write(line.encode("ascii"))
             logger.debug(f"TX: {command}")
             return True
-        except serial.SerialException as e:
+        except (serial.SerialException, OSError) as e:
             logger.error(f"Serial write error: {e}")
-            self._connected = False
+            self._handle_drop(f"write failed: {e}")
             return False
 
     # ------------------------------------------------------------------ #
@@ -133,17 +142,17 @@ class SerialManager:
 
     async def _reader_loop(self) -> None:
         """
-        Continuously reads lines from serial in a non-blocking asyncio loop.
-        Pushes complete lines into rx_queue for PacketParser to consume.
+        Reads lines from serial in a worker thread and pushes complete lines
+        into rx_queue for PacketParser to consume.
         """
         line_buffer = b""
+        loop = asyncio.get_running_loop()
 
         while self._connected:
             try:
-                # Non-blocking read — returns whatever is in buffer
-                chunk = await asyncio.get_event_loop().run_in_executor(
-                    None, self._read_chunk
-                )
+                # Blocks up to the port timeout (50 ms) in a worker thread, so the
+                # event loop stays free and this loop doesn't spin a CPU core.
+                chunk = await loop.run_in_executor(None, self._read_chunk)
 
                 if chunk:
                     line_buffer += chunk
@@ -171,22 +180,39 @@ class SerialManager:
                     self._rx_count = 0
                     self._last_rate_check = now
 
-                await asyncio.sleep(0)  # Yield to event loop
-
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Reader loop error: {e}")
-                self._connected = False
+                # e.g. Windows "PermissionError / ClearCommError" when the ESP32's
+                # USB is unplugged: close the port instead of looking connected.
+                logger.error(f"Serial link lost: {e}")
+                self._handle_drop(str(e))
                 break
 
     def _read_chunk(self) -> bytes:
-        """Blocking read — called via executor to avoid blocking event loop."""
-        if self._serial and self._serial.is_open:
+        """Blocking read (worker thread). Errors propagate to the reader loop."""
+        ser = self._serial
+        if not ser or not ser.is_open:
+            return b""
+        first = ser.read(1)                      # waits up to the 50 ms timeout
+        if not first:
+            return b""
+        waiting = ser.in_waiting
+        return first + (ser.read(waiting) if waiting else b"")
+
+    def _handle_drop(self, reason: str) -> None:
+        """The port died underneath us: mark down, close it, notify once."""
+        was_connected = self._connected
+        self._connected = False
+        try:
+            if self._serial and self._serial.is_open:
+                self._serial.close()
+        except Exception:
+            pass
+        self._serial = None
+        self._rx_rate = 0.0
+        if was_connected and self.on_disconnect:
             try:
-                waiting = self._serial.in_waiting
-                if waiting > 0:
-                    return self._serial.read(waiting)
-            except serial.SerialException:
-                pass
-        return b""
+                self.on_disconnect(reason)
+            except Exception as e:
+                logger.error(f"on_disconnect callback failed: {e}")

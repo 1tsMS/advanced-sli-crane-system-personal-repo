@@ -18,8 +18,8 @@ export function TelemetryPanel({ frame: f }: TelemetryPanelProps) {
   const extMM = f?.extensionMM ?? 0;
   const ropeLen = f?.ropeLength ?? 0;
   const swingAngle = f?.swingAngle ?? 0;
-  const roll = f?.imuRoll ?? 0;
-  const pitch = f?.imuPitch ?? 0;
+  const imuBoom = f?.imuRoll ?? 0;    // boom angle as the IMU sees it (cross-check)
+  const lean = f?.imuPitch ?? 0;      // sideways lean of the boom
 
   // Operating radius calculated from real base boom (22.5cm = 0.225m) + telescope extension
   const nominalBoomM = (225 + Math.max(0, extMM)) / 1000;
@@ -31,7 +31,8 @@ export function TelemetryPanel({ frame: f }: TelemetryPanelProps) {
   const statusColor = isLoadError ? "var(--amber)" : isOverload ? "var(--red)" : isWarn ? "var(--amber)" : "var(--green)";
   const statusLabel = isLoadError ? "LOAD SENSOR ERR" : isOverload ? "OVERLOAD" : isWarn ? "WARNING" : "NORMAL";
 
-  const imuWarn = Math.abs(roll) > 5 || Math.abs(pitch) > 5;
+  // Only the sideways lean is a tip warning; the IMU boom angle is meant to be large
+  const imuWarn = Math.abs(lean) > 5;
 
   return (
     <div className="panel tel-panel">
@@ -58,7 +59,7 @@ export function TelemetryPanel({ frame: f }: TelemetryPanelProps) {
                   ERR (&gt;10kg)
                 </span>
                 <span className="hero-load-unit" style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>
-                  [Raw: {fmt(f?.loadCellRaw ?? actualLoad, 0)}]
+                  [{fmt(f?.measuredLoad ?? actualLoad, 2)} kg]
                 </span>
               </>
             ) : (
@@ -143,16 +144,17 @@ export function TelemetryPanel({ frame: f }: TelemetryPanelProps) {
 
           <div className="tel-card-grid">
             <div className="tel-stat-card">
-              <span className="stat-label">Chassis Roll</span>
-              <span className={`stat-value ${Math.abs(roll) > 5 ? "danger" : Math.abs(roll) > 3 ? "warn" : ""}`}>
-                {fmt(roll, 1)}<span className="stat-unit">°</span>
+              <span className="stat-label">Boom (IMU)</span>
+              <span className={`stat-value ${Math.abs(imuBoom - boomAngle) > 3 ? "warn" : ""}`}
+                    title="Boom angle measured by the IMU; amber when it differs from the main reading by more than 3°">
+                {fmt(imuBoom, 1)}<span className="stat-unit">°</span>
               </span>
             </div>
 
             <div className="tel-stat-card">
-              <span className="stat-label">Chassis Pitch</span>
-              <span className={`stat-value ${Math.abs(pitch) > 5 ? "danger" : Math.abs(pitch) > 3 ? "warn" : ""}`}>
-                {fmt(pitch, 1)}<span className="stat-unit">°</span>
+              <span className="stat-label">Boom Lean</span>
+              <span className={`stat-value ${Math.abs(lean) > 5 ? "danger" : Math.abs(lean) > 3 ? "warn" : ""}`}>
+                {fmt(lean, 1)}<span className="stat-unit">°</span>
               </span>
             </div>
 
@@ -181,9 +183,9 @@ export function TelemetryPanel({ frame: f }: TelemetryPanelProps) {
             </div>
 
             <div className="tel-status-item">
-              <span className="status-item-name">Load Limiter Cutoff</span>
+              <span className="status-item-name">Overload Alarm</span>
               <span className={`status-item-tag ${isOverload ? "danger" : "ok"}`}>
-                {isOverload ? "TRIPPED" : "ARMED"}
+                {isOverload ? "OVERLOAD" : "OK"}
               </span>
             </div>
           </div>

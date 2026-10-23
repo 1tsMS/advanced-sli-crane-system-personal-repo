@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { TelemetryFrame, DebugReport } from "../types";
+import type { TelemetryFrame, DebugReport, RecordingState } from "../types";
 
 const WS_URL = "ws://localhost:8000/ws/telemetry";
 const STATUS_URL = "http://localhost:8000/api/status";
@@ -13,7 +13,13 @@ interface UseTelemetryReturn {
   lastAck: string | null;
   wsStatus: WsStatus;
   espConnected: boolean;
+  /** receivedAt: Date.now() when this state arrived (lets the REC timer tick between polls) */
+  recording: RecordingState & { receivedAt: number };
+  /** Re-read /api/status now (e.g. right after toggling recording). */
+  refreshStatus: () => void;
 }
+
+const NOT_RECORDING: RecordingState = { recording: false, file: null, rows: 0, elapsedSec: 0 };
 
 /**
  * useTelemetry — connects to the Python backend WebSocket and
@@ -26,6 +32,9 @@ export function useTelemetry(): UseTelemetryReturn {
   const [lastAck, setLastAck] = useState<string | null>(null);
   const [wsStatus, setWsStatus] = useState<WsStatus>("disconnected");
   const [espConnected, setEspConnected] = useState<boolean>(false);
+  const [recording, setRecording] = useState<RecordingState & { receivedAt: number }>(
+    () => ({ ...NOT_RECORDING, receivedAt: 0 })
+  );
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -40,9 +49,11 @@ export function useTelemetry(): UseTelemetryReturn {
       const data = await res.json();
       const hasRecentData = Date.now() - lastTelemetryTime.current < 2500;
       setEspConnected(!!data.connected || hasRecentData);
+      setRecording({ ...(data.recording ?? NOT_RECORDING), receivedAt: Date.now() });
     } catch {
       const hasRecentData = Date.now() - lastTelemetryTime.current < 2500;
       setEspConnected(hasRecentData);
+      setRecording({ ...NOT_RECORDING, receivedAt: Date.now() });
     }
   }, []);
 
@@ -108,5 +119,5 @@ export function useTelemetry(): UseTelemetryReturn {
     };
   }, [connect, checkStatus]);
 
-  return { frame, debugReport, lastAck, wsStatus, espConnected };
+  return { frame, debugReport, lastAck, wsStatus, espConnected, recording, refreshStatus: checkStatus };
 }

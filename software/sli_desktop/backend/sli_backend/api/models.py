@@ -62,6 +62,14 @@ class LoadChartUpload(BaseModel):
     entries: List[LoadChartEntry]
 
 
+class RecordingState(BaseModel):
+    """CSV recording state (recording is off until the dashboard starts it)."""
+    recording:  bool = False
+    file:       Optional[str] = None   # file name while recording
+    rows:       int = 0
+    elapsedSec: float = 0.0
+
+
 class StatusResponse(BaseModel):
     """Backend health and connection state."""
     connected:   bool
@@ -69,6 +77,34 @@ class StatusResponse(BaseModel):
     baudRate:    Optional[int] = None
     rxRate:      float = 0.0   # Actual measured telemetry packets/sec
     backendOK:   bool = True
+    recording:   Optional[RecordingState] = None
+
+
+class EncoderCalibrateRequest(BaseModel):
+    """Encoder axis calibration: CAL4 (set current value) and/or CAL5 (direction)."""
+    axis:   str                       # "swing" | "boom" | "tele"
+    value:  Optional[float] = None    # current position is this (deg, or mm for tele)
+    invert: Optional[bool]  = None    # direction
+
+
+class RopeCalibrateRequest(BaseModel):
+    """Rope (N20 winch encoder) scale: mm of rope per quadrature count."""
+    scale:  float
+    invert: Optional[bool] = None
+
+
+class LoadCalibrateRequest(BaseModel):
+    """Load cell calibration: record a known weight, clear the points, or set the scale."""
+    action: str                      # "point" | "clear" | "scale"
+    weight: Optional[float] = None   # kg, for "point"
+    scale:  Optional[float] = None   # counts per kg, for "scale"
+
+
+class AxisScaleRequest(BaseModel):
+    """Ratio of an encoder axis: units (deg or mm) per encoder revolution."""
+    axis:   str                      # "swing" | "boom" | "tele"
+    scale:  float
+    invert: Optional[bool] = None
 
 
 class ImuCalibrateRequest(BaseModel):

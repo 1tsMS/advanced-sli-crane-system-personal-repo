@@ -65,6 +65,9 @@ public:
 
     Adafruit_MPU6050& getRawMPU() { return _mpu; }
 
+    uint32_t reconnects() const { return _reconnects; }
+    uint32_t rejectedSamples() const { return _rejected; }
+
 private:
     Adafruit_MPU6050 _mpu;
     bool  _connected;
@@ -75,9 +78,19 @@ private:
     unsigned long _lastUpdateUs;
     AxisMap _axisMap;
 
-    static constexpr float ALPHA = 0.98f;
+    // Heavier gyro trust: stepper chopping vibration fools the accelerometer.
+    // 0.995 @ 100 Hz ≈ τ 2 s (was 0.98 ≈ τ 0.5 s).
+    static constexpr float ALPHA = 0.995f;
 
     float _remapped(float x, float y, float z, int8_t src, bool inv) const;
+
+    uint32_t _lastReconnectMs  = 0;   // non-blocking reconnect timer
+    uint8_t  _addr             = 0x68;
+    uint32_t _reconnects       = 0;   // fast re-inits after dropouts
+    uint32_t _rejected         = 0;   // implausible (corrupted) samples skipped
+    bool writeReg(uint8_t reg, uint8_t val);
+    bool fastReinit();
+    uint8_t  _consecutiveFails = 0;   // getEvent failures before marking disconnected
 };
 
 #endif // MPU6050_DRIVER_H

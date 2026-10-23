@@ -1,0 +1,6 @@
+# Session recordings (REC button) stay on the PC that recorded them
+logs/
+
+# Python bytecode
+__pycache__/
+*.pyc

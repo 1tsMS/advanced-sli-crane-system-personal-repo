@@ -21,6 +21,11 @@ _VALID_PATTERNS = [
     re.compile(r"^CAL0$"),                                           # Tare load cell
     re.compile(r"^CAL1(\s+B[012])?(\s+I[01])?(\s+T[012])?(\s+Q[01])?$"),  # IMU cal (with optional axis/invert params)
     re.compile(r"^CAL2(\s+S[\d.]+)?(\s+I[01])?$"),                 # Reset telescope (with optional scale and invert)
+    re.compile(r"^CAL4\s+A[1-4]\s+V-?\d+(\.\d+)?$"),               # Encoder axis: current position = V (A4 = rope)
+    re.compile(r"^CAL5\s+A[1-4]\s+I[01]$"),                         # Encoder axis direction (A4 = rope)
+    re.compile(r"^CAL6\s+S\d+(\.\d+)?$"),                          # Rope scale (mm per N20 count)
+    re.compile(r"^CAL7\s+(W\d+(\.\d+)?|CLEAR|S-?\d+(\.\d+)?)$"),     # Load cell: record weight / clear / set scale
+    re.compile(r"^CAL8\s+A[1-3]\s+S\d+(\.\d+)?(\s+I[01])?$"),       # Axis ratio: units per encoder rev
     re.compile(r"^DBG$"),                                            # Debug request
     re.compile(r"^CFG\s+RATE\s+\d+$"),                              # Config rate
     re.compile(r"^LC\s+UPLOAD\s+\d+$"),                             # Load chart upload start
@@ -54,7 +59,11 @@ class CommandRouter:
 
         success = self._serial.send(command)
         if success:
-            logger.info(f"CMD → ESP32: {command}")
+            # Held motions repeat every 100 ms (dead-man): keep them out of the INFO log
+            if command[0] == "M":
+                logger.debug(f"CMD → ESP32: {command}")
+            else:
+                logger.info(f"CMD → ESP32: {command}")
             return True, "OK"
         else:
             return False, "Serial write failed"

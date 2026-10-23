@@ -12,6 +12,7 @@
 #define TELEMETRY_FMT_H
 
 #include "config.h"
+#include "sensor_task.h"   // SensorDiag
 
 class TelemetryFormatter {
 public:
@@ -27,15 +28,15 @@ public:
     int format(const SensorData& data, char* buffer, size_t bufLen);
 
     /**
-     * Format a debug/I2C scan report.
-     * Called when the DBG command is received.
-     * @param sensorStatus Array of {busName, address, isOK} entries
+     * Format the debug report sent in answer to DBG.
+     * Every line is "$D,<TAG>,<detail>,<status>" (FSRx / N20_TICKS: "$D,<TAG>,<value>"),
+     * ending with "$D,END". Encoder lines come from SensorTask's diagnostics.
      */
     void formatDebugReport(
-        bool swingOK, bool boomOK, bool teleOK,
         bool mpuOK, bool hx711OK,
         const uint16_t fsr[4],
         long n20Ticks,
+        const SensorDiag& diag,
         char* buffer, size_t bufLen
     );
 };

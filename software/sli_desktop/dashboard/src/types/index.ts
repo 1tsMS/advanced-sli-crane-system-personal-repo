@@ -27,6 +27,14 @@ export interface DebugReport {
 
 export type AlarmLevel = 0 | 1 | 2 | 3;
 
+/** CSV recording state from the backend (off until the REC button is pressed). */
+export interface RecordingState {
+  recording: boolean;
+  file: string | null;
+  rows: number;
+  elapsedSec: number;
+}
+
 export type TabId =
   | "dashboard"
   | "debug"

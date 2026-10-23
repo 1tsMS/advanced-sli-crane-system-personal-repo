@@ -12,7 +12,9 @@
 //    M0 A1           → Stop axis 1 (swing)
 //    CAL0            → Tare load cell
 //    CAL1            → Calibrate IMU
-//    CAL2            → Reset telescope encoder
+//    CAL2            → Reset telescope encoder (CAL2 S<mm/rev> I<0|1> sets scale/direction)
+//    CAL4 A2 V0      → Encoder axis 2 (boom) is at 0 deg right now (A1 swing, A3 telescope mm)
+//    CAL5 A1 I1      → Invert encoder axis 1 (swing)
 //    DBG             → Request debug/I2C scan report
 //    CFG RATE 50     → Set telemetry rate
 // ============================================================
@@ -58,6 +60,9 @@ struct ParsedCommand {
     int8_t       tiltInv;     // 0 or 1
     float        teleScale;   // Filled for CAL_RESET_TELE (scale in mm/rev)
     int8_t       teleInvert;  // Filled for CAL_RESET_TELE (0=normal, 1=inverted, -1=keep)
+    uint8_t      encAxis;     // Filled for CAL_ENC_REF / CAL_ENC_INVERT (0=swing, 1=boom, 2=tele)
+    float        encValue;    // Filled for CAL_ENC_REF (deg, or mm for the telescope)
+    int8_t       encInvert;   // Filled for CAL_ENC_INVERT (0 or 1)
 };
 
 class GCodeParser {

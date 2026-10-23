@@ -80,6 +80,9 @@ async def startup() -> None:
     # Inject serial + logging into REST endpoints
     init_endpoints(serial_mgr, cmd_router, session_log)
 
+    # USB unplugged / COM port died: close any open recording right away
+    serial_mgr.on_disconnect = _on_serial_lost
+
     # Register PacketParser callbacks → WebSocket + logger
     pkt_parser.set_callbacks(
         on_telemetry=_on_telemetry,
@@ -138,6 +141,13 @@ def _on_telemetry(frame: TelemetryFrame) -> None:
     asyncio.create_task(broadcast_telemetry(frame))
     # Log to CSV
     session_log.log_frame(frame)
+
+
+def _on_serial_lost(reason: str) -> None:
+    """Called by SerialManager when the port drops without a disconnect request."""
+    logger.warning(f"ESP32 link lost ({reason})")
+    if session_log.is_active:
+        session_log.end_session()
 
 
 def _on_debug(report: DebugReport) -> None:

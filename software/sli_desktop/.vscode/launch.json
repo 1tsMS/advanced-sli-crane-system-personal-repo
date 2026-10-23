@@ -1,0 +1,37 @@
+{
+  "version": "0.2.0",
+  "compounds": [
+    {
+      "name": "Launch SLI Desktop (Backend + UI)",
+      "configurations": [
+        "Debug SLI Backend",
+        "Run SLI Dashboard"
+      ],
+      "stopAll": true
+    }
+  ],
+  "configurations": [
+    {
+      "name": "Launch SLI Desktop (Terminals)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "echo 'SLI Desktop terminals started.'",
+      "preLaunchTask": "Launch SLI Desktop"
+    },
+    {
+      "name": "Debug SLI Backend",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/main.py",
+      "cwd": "${workspaceFolder}/backend",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Run SLI Dashboard",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}/dashboard"
+    }
+  ]
+}

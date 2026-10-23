@@ -73,7 +73,7 @@
 // Stack sizes (bytes) — increase if you see stack overflow crashes
 #define SENSOR_TASK_STACK     4096
 #define TELEMETRY_TASK_STACK  4096
-#define COMMAND_TASK_STACK    4096
+#define COMMAND_TASK_STACK    8192   // DBG report buffer (1.5 KB) lives on this stack
 
 // Task priorities — higher number = higher priority
 #define SENSOR_TASK_PRIORITY     5   // Time-critical sensor reads
@@ -81,19 +81,31 @@
 #define TELEMETRY_TASK_PRIORITY  3   // Can tolerate slight delays
 
 // ======================== ENCODER CONVERSIONS ========================
-// N20 encoder: ticks per full drum revolution
-// 150RPM N20 with magnetic encoder typically has ~7 PPR × 4 (quadrature) × gear ratio
-// Adjust after measuring your actual encoder!
-#define N20_TICKS_PER_REV       840
-// Rope drum diameter in mm
+// N20 winch encoder, counted by PCNT in 4x quadrature.
+// Starting guess only (840 lines x 4, 20 mm drum). The real value is measured
+// with the rope ruler calibration (CAL6) and stored in flash.
+#define N20_COUNTS_PER_REV      3360
 #define ROPE_DRUM_DIAMETER_MM   20.0f
-// Derived: mm of rope per encoder tick
-#define ROPE_MM_PER_TICK  ((PI * ROPE_DRUM_DIAMETER_MM) / N20_TICKS_PER_REV)
+#define ROPE_MM_PER_COUNT_DEFAULT  ((PI * ROPE_DRUM_DIAMETER_MM) / N20_COUNTS_PER_REV)
 
 // Telescope AS5600: mm of linear travel per full encoder revolution
 // Calibrated from physical test: 50mm actual = 2.625 revs (-21mm at 8mm/rev) -> 19.048 mm/rev
 #define TELE_MM_PER_REVOLUTION  19.048f
 #define TELE_DEFAULT_INVERT     true
+
+// Swing and boom AS5600s: degrees of axis rotation per encoder revolution.
+// Magnet is on the motor shaft, NOT the output shaft, so these are geared.
+// Swing: 20:1 cycloidal drive → 1 encoder rev = 360/20 = 18° of turntable.
+// Boom:  leadscrew — ratio unknown, 360° placeholder until measured via CAL4.
+#define SWING_DEG_PER_REV       18.0f
+#define BOOM_DEG_PER_REV        360.0f
+
+// Boom angle source. The boom AS5600 is on the leadscrew motor, and a leadscrew
+// lifting a pivoting boom is NOT linear (deg per motor turn changes with angle),
+// so a single BOOM_DEG_PER_REV can't give a correct angle. Keep 0 (IMU is the
+// boom angle) until a multi-point angle-vs-turns calibration exists.
+// 1 = use the boom encoder once it has been referenced with CAL4 A2.
+#define BOOM_ANGLE_FROM_ENCODER 0
 
 // Crane physical geometry
 #define BASE_BOOM_LENGTH_MM     225.0f   // 22.5 cm physical base boom
@@ -117,12 +129,12 @@ struct SensorData {
     float ropeLengthMM;      // rope payed out from N20 encoder
 
     // Load
-    float loadCellRaw;       // kg — direct HX711 reading, NOT angle-compensated
-    float actualLoadKg;      // kg — boom-angle-compensated (Phase 3, 0.0 for now)
+    float loadCellRaw;       // kg — HX711 reading (tare + scale), NOT angle-compensated
+    float actualLoadKg;      // kg — boom-angle-compensated (Phase 3: same as loadCellRaw for now)
 
-    // IMU orientation (complementary-filtered)
-    float imuRoll;           // degrees
-    float imuPitch;          // degrees
+    // IMU orientation (complementary-filtered, zeroed by CAL1)
+    float imuRoll;           // degrees — boom angle as seen by the IMU (cross-check for the encoder)
+    float imuPitch;          // degrees — sideways lean of the boom
 
     // Outrigger force sensors (raw ADC 0–4095)
     uint16_t fsr[4];
@@ -141,7 +153,7 @@ struct SensorData {
  */
 struct MotorCommand {
     uint8_t  axis;       // 1=Swing, 2=Lift, 3=Tele, 4=Winch, 0=StopAxis
-    uint16_t speed;      // 0–255
+    uint16_t speed;      // 0–MOTOR_SPEED_MAX (steps/s; scaled to PWM for the winch)
     uint8_t  direction;  // 0 or 1
     uint8_t  stopAxis;   // which axis to stop (for M0 Ax commands)
     bool     isEstop;    // true → emergency stop ALL motors
@@ -153,8 +165,22 @@ struct MotorCommand {
 enum CalCommand : uint8_t {
     CAL_TARE_LOAD   = 0,  // Zero the load cell
     CAL_ZERO_IMU    = 1,  // Set current IMU orientation as zero
-    CAL_RESET_TELE  = 2   // Reset telescope extension to 0
+    CAL_RESET_TELE  = 2,  // Reset telescope extension to 0 / set its scale + direction
+    CAL_ENC_REF     = 4,  // CAL4 A<axis> V<value>: "this encoder axis is at <value> now"
+    CAL_ENC_INVERT  = 5,  // CAL5 A<axis> I<0|1>:  flip an encoder axis direction
+    CAL_ROPE_SCALE  = 6   // CAL6 S<mm per count>: rope (winch) scale
 };
+
+// Highest speed accepted in an M-command (steps/s). The winch maps this range onto 0-255 PWM.
+#define MOTOR_SPEED_MAX  2500
+
+// Dead-man timeout: a motor keeps running only while its M-command keeps being
+// repeated (dashboard: every 100 ms while held). Same value in mega_executor.ino.
+#define MOTION_TIMEOUT_MS  400
+
+// Load % thresholds (match the dashboard: amber at 80 %, red at 100 %)
+#define ALARM_WARN_PERCENT      80.0f
+#define ALARM_CRITICAL_PERCENT  100.0f
 
 // ======================== GLOBAL RTOS HANDLES ========================
 // Declared here, defined in esp32_main.ino

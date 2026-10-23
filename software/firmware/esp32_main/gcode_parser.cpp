@@ -43,8 +43,8 @@ ParseResult GCodeParser::parse(const char* line, ParsedCommand* out) {
         out->motor.direction = (uint8_t)extractParam(line, 'D', 0);
         out->motor.isEstop = false;
 
-        // Clamp speed to 0-2500
-        if (out->motor.speed > 2500) out->motor.speed = 2500;
+        // Clamp speed to 0-MOTOR_SPEED_MAX
+        if (out->motor.speed > MOTOR_SPEED_MAX) out->motor.speed = MOTOR_SPEED_MAX;
         // Clamp direction to 0 or 1
         if (out->motor.direction > 1) out->motor.direction = 1;
 
@@ -69,6 +69,30 @@ ParseResult GCodeParser::parse(const char* line, ParsedCommand* out) {
                 out->calType    = CAL_RESET_TELE;
                 out->teleScale  = extractFloatParam(line, 'S', 0.0f);
                 out->teleInvert = (int8_t)extractParam(line, 'I', -1);
+                return PARSE_OK;
+            }
+            case '4':
+            case '5': {
+                // Note: "CAL" itself contains an 'A', so look for the axis after the digit
+                const int axis = extractParam(line + 4, 'A', 0);
+                if (axis < 1 || axis > 4) return PARSE_INVALID_PARAMS;   // A4 = rope (winch encoder)
+                out->encAxis = (uint8_t)(axis - 1);
+                if (digit == '4') {
+                    out->calType  = CAL_ENC_REF;
+                    out->encValue = extractFloatParam(line + 4, 'V', 0.0f);
+                } else {
+                    const int inv = extractParam(line + 4, 'I', -1);
+                    if (inv != 0 && inv != 1) return PARSE_INVALID_PARAMS;
+                    out->calType   = CAL_ENC_INVERT;
+                    out->encInvert = (int8_t)inv;
+                }
+                return PARSE_OK;
+            }
+            case '6': {
+                out->calType  = CAL_ROPE_SCALE;
+                out->encAxis  = 3;
+                out->encValue = extractFloatParam(line + 4, 'S', 0.0f);
+                if (!(out->encValue > 0.0f)) return PARSE_INVALID_PARAMS;
                 return PARSE_OK;
             }
             default:  return PARSE_INVALID_PARAMS;

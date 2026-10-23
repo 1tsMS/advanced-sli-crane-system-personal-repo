@@ -2,11 +2,12 @@
 //  Sensor Task — Implementation
 // ============================================================
 #include "sensor_task.h"
+#include "encoder_axis.h"
+#include "serial_out.h"
+#include <Preferences.h>
 
 // Local references to driver instances (set by init)
-static AS5600Driver*  _swingEnc  = nullptr;
-static AS5600Driver*  _boomEnc   = nullptr;
-static AS5600Driver*  _teleEnc   = nullptr;
+static AS5600Driver*  _enc[ENC_COUNT] = { nullptr, nullptr, nullptr };
 static MPU6050Driver* _imu       = nullptr;
 static HX711Driver*   _loadCell  = nullptr;
 static FSRReader*     _fsr       = nullptr;
@@ -14,6 +15,107 @@ static N20Encoder*    _winchEnc  = nullptr;
 
 // Global sensor data — declared in esp32_main.ino
 extern SensorData sensorData;
+
+// Calibrated encoder axes.  All three now use ENC_LINEAR (multi-turn
+// counting) because every AS5600 magnet sits on the motor shaft behind
+// a gear reduction, not on the output shaft.
+static EncoderAxis _axis[ENC_COUNT] = {
+    EncoderAxis(ENC_LINEAR, SWING_DEG_PER_REV),        // 20:1 cycloidal
+    EncoderAxis(ENC_LINEAR, BOOM_DEG_PER_REV),         // leadscrew (ratio TBD)
+    EncoderAxis(ENC_LINEAR, TELE_MM_PER_REVOLUTION),
+};
+static const char* AXIS_NAME[ENC_COUNT] = { "SWING", "BOOM", "TELE" };
+
+// Boom angle comes from the boom encoder once it has been zeroed (CAL4 A2);
+// until then the IMU is used, as before.
+static bool _boomCalibrated = false;
+
+// IMU calibration (boom angle seen by the IMU + sideways lean)
+static float   _boomAngleOffset = 0.0f;
+static float   _tiltAngleOffset = 0.0f;
+static uint8_t _boomSource      = 0;     // 0 = Roll (X) — physical MPU placement default
+static uint8_t _tiltSource      = 1;     // 1 = Pitch (Y) — independent from boom
+static bool    _boomInvert      = false;
+static bool    _tiltInvert      = false;
+
+static volatile bool    _reqImuCalibration = false;
+static volatile uint8_t _reqBoomSrc = 0;
+static volatile uint8_t _reqTiltSrc = 1;
+static volatile bool    _reqBoomInv = false;
+static volatile bool    _reqTiltInv = false;
+
+static QueueHandle_t _calQueue = nullptr;
+
+// ---- Hardware-I2C bus task (bus 0: swing AS5600 + MPU6050, bus 1: boom AS5600) ----
+// The ESP-IDF 4.4 I2C driver inside this Arduino core waits at least 1 s when a
+// transfer hangs (Wire.setTimeOut can't shorten it). Motor noise on the long IMU
+// cable caused exactly that: a ~2 s freeze of the WHOLE sensor loop, telescope
+// included. So the two hardware buses are read by their own task. A hang there
+// now only delays swing / boom / IMU; the telescope (soft I2C), load cell, FSRs
+// and winch keep updating at 100 Hz. That task only reads raw values; all encoder
+// maths, calibration and saving stay in SensorTask (single owner, no races).
+struct HwBusShared {
+    uint32_t seq[2]   = {0, 0};      // [swing, boom]: bumped on every new raw sample
+    uint16_t raw[2]   = {0, 0};
+    uint32_t rawMs[2] = {0, 0};      // millis() when that sample was read
+    float    imuBoom  = 0.0f;
+    float    imuTilt  = 0.0f;
+    bool     imuOK    = false;
+    AS5600MagnetStatus mag[2] = {};
+    bool     magNew[2] = {false, false};
+    float    workMaxMs = 0.0f;       // worst hardware-bus cycle since the last DBG
+};
+static HwBusShared  _hw;
+static portMUX_TYPE _hwMux = portMUX_INITIALIZER_UNLOCKED;
+static bool          _tarePending = false;
+static uint32_t      _tareStartMs = 0;
+
+// ---- Position persistence (NVS "sli_pos2") ----
+// Saved: reference value + encoder counts from the reference + raw angle.
+// Restoring those keeps the original zero, so invert / scale changes after a
+// reboot still act around the true zero (the first version re-anchored at the
+// boot position). Applied after the first raw sample arrives.
+struct PendingRestore {
+    bool     pending = false;
+    float    ref     = 0.0f;
+    int32_t  counts  = 0;
+    uint16_t raw     = 0;
+};
+static PendingRestore _pendingRestore[ENC_COUNT];
+static const char* POS_TAG[ENC_COUNT + 1] = { "sw", "bm", "tl", "rp" };   // + rope
+
+// Idle-save tracking (index ENC_COUNT = rope): save when stable for 1 s and changed
+static float    _prevValue[ENC_COUNT + 1]      = {0};
+static float    _lastSavedValue[ENC_COUNT + 1] = {0};
+static uint32_t _stableMs[ENC_COUNT + 1]       = {0};
+
+// ---- Rope (N20 winch encoder) ----
+// rope mm = ref + sign * (count - zero) * scale
+struct RopeCal {
+    float   scale = ROPE_MM_PER_COUNT_DEFAULT;   // mm per PCNT count
+    int8_t  sign  = 1;
+    float   ref   = 0.0f;
+    int32_t zero  = 0;
+};
+static RopeCal _rope;
+
+static int32_t ropeRawCounts() { return (_winchEnc ? _winchEnc->getCount() : 0) - _rope.zero; }
+static float   ropeValue()     { return _rope.ref + (float)(_rope.sign * ropeRawCounts()) * _rope.scale; }
+
+// Loop stages timed for DBG (index into SensorDiag::stageMaxMs)
+enum { STAGE_IMUCAL, STAGE_ENC, STAGE_SAVE, STAGE_MAG, STAGE_CAL, STAGE_IMU, STAGE_HX, STAGE_COUNT };
+static float _stageMax[STAGE_COUNT] = {0};
+static inline void stageEnd(int stage, uint32_t& t) {
+    const uint32_t now = micros();
+    const float ms = (now - t) / 1000.0f;
+    if (ms > _stageMax[stage]) _stageMax[stage] = ms;
+    t = now;
+}
+
+// Diagnostics (written by this task under sensorMutex)
+static SensorDiag _diag;
+static float      _loopSumMs  = 0.0f;
+static uint32_t   _loopCount  = 0;
 
 void sensorTask_init(
     AS5600Driver* swingEnc,
@@ -24,89 +126,150 @@ void sensorTask_init(
     FSRReader* fsr,
     N20Encoder* winchEnc
 ) {
-    _swingEnc = swingEnc;
-    _boomEnc  = boomEnc;
-    _teleEnc  = teleEnc;
+    _enc[ENC_SWING] = swingEnc;
+    _enc[ENC_BOOM]  = boomEnc;
+    _enc[ENC_TELE]  = teleEnc;
     _imu      = imu;
     _loadCell = loadCell;
     _fsr      = fsr;
     _winchEnc = winchEnc;
+    _calQueue = xQueueCreate(8, sizeof(CalRequest));
+    memset(&_diag, 0, sizeof(_diag));
 }
 
-#include <Preferences.h>
+// ======================== FLASH (NVS) ========================
+// "sli_imu": IMU zero/axis mapping + telescope scale/direction (unchanged keys)
+// "sli_enc": swing / boom encoder zero, reference and direction
 
-static Preferences _prefs;
-static float   _boomAngleOffset = 0.0f;
-static float   _tiltAngleOffset = 0.0f;
-static uint8_t _boomSource      = 0;     // 0 = Roll (X) — physical MPU placement default
-static uint8_t _tiltSource      = 1;     // 1 = Pitch (Y) — independent from boom
-static bool    _boomInvert      = false;
-static bool    _tiltInvert      = false;
-static float   _teleScale       = TELE_MM_PER_REVOLUTION;
-static bool    _teleInvert      = TELE_DEFAULT_INVERT;
+static void saveImuAndTele() {
+    Preferences p;
+    p.begin("sli_imu", false);
+    p.putFloat("b_off",      _boomAngleOffset);
+    p.putFloat("t_off",      _tiltAngleOffset);
+    p.putUChar("b_src",      _boomSource);
+    p.putUChar("t_src",      _tiltSource);
+    p.putBool("b_inv",       _boomInvert);
+    p.putBool("t_inv",       _tiltInvert);
+    p.putFloat("tele_scale", _axis[ENC_TELE].unitsPerRev());
+    p.putBool("tele_inv",    _axis[ENC_TELE].inverted());
+    p.end();
+}
 
-static volatile bool    _reqImuCalibration = false;
-static volatile uint8_t _reqBoomSrc = 0;
-static volatile uint8_t _reqTiltSrc = 1;
-static volatile bool    _reqBoomInv = false;
-static volatile bool    _reqTiltInv = false;
+static void saveRotary(uint8_t idx) {
+    const char* pre = (idx == ENC_SWING) ? "s" : "b";
+    char key[8];
+    Preferences p;
+    p.begin("sli_enc", false);
+    snprintf(key, sizeof(key), "%s_z", pre); p.putUShort(key, _axis[idx].zeroRaw());
+    snprintf(key, sizeof(key), "%s_r", pre); p.putFloat(key, _axis[idx].reference());
+    snprintf(key, sizeof(key), "%s_i", pre); p.putBool(key, _axis[idx].inverted());
+    if (idx == ENC_BOOM) p.putBool("b_cal", _boomCalibrated);
+    p.end();
+}
 
-void sensorTask_saveCalibration() {
-    _prefs.begin("sli_imu", false);
-    _prefs.putFloat("b_off",      _boomAngleOffset);
-    _prefs.putFloat("t_off",      _tiltAngleOffset);
-    _prefs.putUChar("b_src",      _boomSource);
-    _prefs.putUChar("t_src",      _tiltSource);
-    _prefs.putBool("b_inv",       _boomInvert);
-    _prefs.putBool("t_inv",       _tiltInvert);
-    _prefs.putFloat("tele_scale", _teleScale);
-    _prefs.putBool("tele_inv",    _teleInvert);
-    _prefs.end();
+// Save an axis position for boot recovery (idx ENC_COUNT = rope).
+// One flash write per move-then-stop: fine for NVS wear.
+static void savePosition(uint8_t idx) {
+    char kr[8], kc[8], kw[8];
+    snprintf(kr, sizeof(kr), "%s_r", POS_TAG[idx]);
+    snprintf(kc, sizeof(kc), "%s_c", POS_TAG[idx]);
+    snprintf(kw, sizeof(kw), "%s_w", POS_TAG[idx]);
+    Preferences p;
+    p.begin("sli_pos2", false);
+    if (idx < ENC_COUNT) {
+        p.putFloat(kr, _axis[idx].reference());
+        p.putInt(kc, _axis[idx].rawCountsFromReference());
+        p.putUShort(kw, _axis[idx].lastRaw());
+    } else {
+        p.putFloat(kr, _rope.ref);
+        p.putInt(kc, ropeRawCounts());
+    }
+    p.end();
+}
+
+static void saveRope() {
+    Preferences p;
+    p.begin("sli_rope", false);
+    p.putFloat("scale", _rope.scale);
+    p.putBool("inv", _rope.sign < 0);
+    p.end();
 }
 
 void sensorTask_loadCalibration() {
-    _prefs.begin("sli_imu", true);
-    _boomAngleOffset = _prefs.getFloat("b_off",      0.0f);
-    _tiltAngleOffset = _prefs.getFloat("t_off",      0.0f);
-    _boomSource      = _prefs.getUChar("b_src",      0);   // default: Roll (X)
-    _tiltSource      = _prefs.getUChar("t_src",      1);   // default: Pitch (Y)
-    _boomInvert      = _prefs.getBool("b_inv",       false);
-    _tiltInvert      = _prefs.getBool("t_inv",       false);
-    _teleScale       = _prefs.getFloat("tele_scale", TELE_MM_PER_REVOLUTION);
-    _teleInvert      = _prefs.getBool("tele_inv",    TELE_DEFAULT_INVERT);
-    _prefs.end();
+    Preferences p;
+    p.begin("sli_imu", true);
+    _boomAngleOffset = p.getFloat("b_off", 0.0f);
+    _tiltAngleOffset = p.getFloat("t_off", 0.0f);
+    _boomSource      = p.getUChar("b_src", 0);   // default: Roll (X)
+    _tiltSource      = p.getUChar("t_src", 1);   // default: Pitch (Y)
+    _boomInvert      = p.getBool("b_inv", false);
+    _tiltInvert      = p.getBool("t_inv", false);
+    const float teleScale = p.getFloat("tele_scale", TELE_MM_PER_REVOLUTION);
+    const bool  teleInv   = p.getBool("tele_inv",    TELE_DEFAULT_INVERT);
+    p.end();
+    _axis[ENC_TELE].configure(teleInv ? -1 : 1, 0, 0.0f, teleScale);
+
+    p.begin("sli_enc", true);
+    _axis[ENC_SWING].configure(p.getBool("s_i", false) ? -1 : 1,
+                               p.getUShort("s_z", 0), p.getFloat("s_r", 0.0f), SWING_DEG_PER_REV);
+    _axis[ENC_BOOM].configure(p.getBool("b_i", false) ? -1 : 1,
+                              p.getUShort("b_z", 0), p.getFloat("b_r", 0.0f), BOOM_DEG_PER_REV);
+    _boomCalibrated = p.getBool("b_cal", false);
+    p.end();
+
+    // ---- Rope scale / direction ----
+    p.begin("sli_rope", true);
+    const float ropeScale = p.getFloat("scale", ROPE_MM_PER_COUNT_DEFAULT);
+    _rope.scale = (ropeScale > 0.0f) ? ropeScale : ROPE_MM_PER_COUNT_DEFAULT;
+    _rope.sign  = p.getBool("inv", false) ? -1 : 1;
+    p.end();
+
+    // ---- Saved positions (encoders are restored after their first sample) ----
+    p.begin("sli_pos2", true);
+    for (uint8_t i = 0; i <= ENC_COUNT; i++) {
+        char kr[8], kc[8], kw[8];
+        snprintf(kr, sizeof(kr), "%s_r", POS_TAG[i]);
+        snprintf(kc, sizeof(kc), "%s_c", POS_TAG[i]);
+        snprintf(kw, sizeof(kw), "%s_w", POS_TAG[i]);
+        if (!p.isKey(kc)) continue;
+        if (i < ENC_COUNT) {
+            _pendingRestore[i].pending = true;
+            _pendingRestore[i].ref     = p.getFloat(kr, 0.0f);
+            _pendingRestore[i].counts  = p.getInt(kc, 0);
+            _pendingRestore[i].raw     = p.getUShort(kw, 0);
+        } else {
+            // The PCNT count is 0 at boot, so the rope is restored right away.
+            // (A winch that unwound while powered off can't be detected.)
+            _rope.ref  = p.getFloat(kr, 0.0f);
+            _rope.zero = -p.getInt(kc, 0);
+            _lastSavedValue[ENC_COUNT] = _prevValue[ENC_COUNT] = ropeValue();
+        }
+    }
+    p.end();
+
+    // ---- Load saved tare offset for HX711 ----
+    p.begin("sli_hx", true);
+    if (p.isKey("offset") && _loadCell) {
+        int32_t savedOffset = p.getLong("offset", 0);
+        if (savedOffset != 0) {
+            _loadCell->setOffset(savedOffset);
+            Serial.printf("  HX711: restored tare offset %ld from NVS\n", (long)savedOffset);
+        }
+    }
+    bool hasTare = p.isKey("offset");
+    p.end();
+
+    // If no saved tare exists and the load cell is connected, do a
+    // fallback tare now (blocking, but only runs on very first boot).
+    if (!hasTare && _loadCell && _loadCell->isConnected()) {
+        _loadCell->startTare(10);
+        _tarePending = true;
+        _tareStartMs = millis();
+        Serial.println("  HX711: no saved offset — auto-tare started");
+    }
 }
 
-void sensorTask_resetTelescope(float scale, int8_t invert) {
-    bool isTuningOnly = (scale > 0.1f || invert >= 0);
-    if (scale > 0.1f) {
-        _teleScale = scale;
-    }
-    if (invert >= 0) {
-        _teleInvert = (invert != 0);
-    }
-    if (!isTuningOnly && _teleEnc) {
-        _teleEnc->setZero();
-        Serial.println("$ACK,CAL2,TELE_ZEROED");
-    } else {
-        Serial.print("$ACK,CAL2,TELE_SAVED,SCALE:");
-        Serial.print(_teleScale, 3);
-        Serial.print(",INV:");
-        Serial.println(_teleInvert ? "1" : "0");
-    }
-    sensorTask_saveCalibration();
-}
-
-void sensorTask_zeroIMU() {
-    if (_imu && _imu->isConnected()) {
-        float r = _imu->getRoll();
-        float p = _imu->getPitch();
-        // Use independently configured source axes for zeroing
-        _boomAngleOffset = (_boomSource == 1) ? p : r;
-        _tiltAngleOffset = (_tiltSource == 1) ? p : r;
-        sensorTask_saveCalibration();
-    }
-}
+// ======================== REQUESTS FROM OTHER TASKS ========================
 
 void sensorTask_requestIMUCalibration(uint8_t boomSrc, bool boomInv, uint8_t tiltSrc, bool tiltInv) {
     _reqBoomSrc = boomSrc;
@@ -116,92 +279,329 @@ void sensorTask_requestIMUCalibration(uint8_t boomSrc, bool boomInv, uint8_t til
     _reqImuCalibration = true;
 }
 
+bool sensorTask_requestCal(const CalRequest& req) {
+    return _calQueue && xQueueSend(_calQueue, &req, 0) == pdTRUE;
+}
+
+void sensorTask_getDiag(SensorDiag* out, bool resetPeaks) {
+    if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+        *out = _diag;
+        if (resetPeaks) {
+            _diag.loopMaxMs   = 0.0f;
+            _diag.periodMaxMs = 0.0f;
+            for (int k = 0; k < STAGE_COUNT; k++) _stageMax[k] = 0.0f;
+            taskENTER_CRITICAL(&_hwMux);
+            _hw.workMaxMs = 0.0f;
+            taskEXIT_CRITICAL(&_hwMux);
+        }
+        xSemaphoreGive(sensorMutex);
+    } else {
+        memset(out, 0, sizeof(*out));
+    }
+}
+
+// ======================== CALIBRATION (runs on core 1) ========================
+
+static void runImuCalibration() {
+    _reqImuCalibration = false;
+    if (!_imu || !_imu->isConnected()) {
+        serialLine("$ACK,CAL1,ERR,IMU_NOT_FOUND");
+        return;
+    }
+    _imu->calibrateGyro(100);
+    Wire.setClock(100000);
+    _boomSource = _reqBoomSrc;
+    _tiltSource = _reqTiltSrc;
+    _boomInvert = _reqBoomInv;
+    _tiltInvert = _reqTiltInv;
+    const float r = _imu->getRoll();
+    const float p = _imu->getPitch();
+    _boomAngleOffset = (_boomSource == 1) ? p : r;
+    _tiltAngleOffset = (_tiltSource == 1) ? p : r;
+    saveImuAndTele();
+    serialLine("$ACK,CAL1,IMU_ZEROED,b_off:%.2f t_off:%.2f b_src:%u t_src:%u b_inv:%u t_inv:%u",
+               _boomAngleOffset, _tiltAngleOffset, _boomSource, _tiltSource,
+               _boomInvert ? 1 : 0, _tiltInvert ? 1 : 0);
+}
+
+static void runCal(const CalRequest& req) {
+    switch (req.type) {
+        case CAL_TARE_LOAD:
+            if (!_loadCell || !_loadCell->isConnected()) {
+                serialLine("$ACK,CAL0,ERR,HX711_NOT_FOUND");
+                return;
+            }
+            _loadCell->startTare(10);          // finishes over the next ~1 s of samples
+            _tarePending = true;
+            _tareStartMs = millis();
+            return;
+
+        case CAL_RESET_TELE: {
+            EncoderAxis& tele = _axis[ENC_TELE];
+            const bool tuning = (req.value > 0.1f || req.flag >= 0);
+            if (!tuning) {
+                if (!tele.hasSample()) { serialLine("$ACK,CAL2,ERR,NO_SAMPLE"); return; }
+                tele.setReference(0.0f);
+                savePosition(ENC_TELE);
+                _lastSavedValue[ENC_TELE] = 0.0f;
+                serialLine("$ACK,CAL2,TELE_ZEROED");
+                return;
+            }
+            if (req.value > 0.1f) tele.setUnitsPerRev(req.value);
+            if (req.flag >= 0)    tele.setInvert(req.flag != 0);
+            saveImuAndTele();
+            serialLine("$ACK,CAL2,TELE_SAVED,SCALE:%.4f,INV:%u", tele.unitsPerRev(), tele.inverted() ? 1 : 0);
+            return;
+        }
+
+        case CAL_ENC_REF: {
+            if (req.axis == CAL_AXIS_ROPE) {
+                _rope.zero = _winchEnc ? _winchEnc->getCount() : 0;
+                _rope.ref  = req.value;
+                savePosition(ENC_COUNT);
+                _lastSavedValue[ENC_COUNT] = req.value;
+                serialLine("$ACK,CAL4,A4,ROPE,OK,VALUE:%.2f", ropeValue());
+                return;
+            }
+            if (req.axis >= ENC_COUNT) { serialLine("$ACK,CAL4,ERR,BAD_AXIS"); return; }
+            EncoderAxis& ax = _axis[req.axis];
+            if (!ax.hasSample()) { serialLine("$ACK,CAL4,A%u,ERR,NO_SAMPLE", req.axis + 1); return; }
+            ax.setReference(req.value);
+            if (req.axis == ENC_BOOM) _boomCalibrated = true;
+            if (req.axis != ENC_TELE) saveRotary(req.axis);
+            savePosition(req.axis);
+            _lastSavedValue[req.axis] = ax.value();
+            serialLine("$ACK,CAL4,A%u,%s,OK,VALUE:%.2f", req.axis + 1, AXIS_NAME[req.axis], ax.value());
+            return;
+        }
+
+        case CAL_ENC_INVERT: {
+            if (req.flag < 0) { serialLine("$ACK,CAL5,ERR,BAD_ARGS"); return; }
+            if (req.axis == CAL_AXIS_ROPE) {
+                _rope.sign = req.flag ? -1 : 1;
+                saveRope();
+                serialLine("$ACK,CAL5,A4,ROPE,OK,INV:%u", req.flag ? 1 : 0);
+                return;
+            }
+            if (req.axis >= ENC_COUNT) { serialLine("$ACK,CAL5,ERR,BAD_AXIS"); return; }
+            _axis[req.axis].setInvert(req.flag != 0);
+            if (req.axis == ENC_TELE) saveImuAndTele();
+            else                      saveRotary(req.axis);
+            serialLine("$ACK,CAL5,A%u,%s,OK,INV:%u", req.axis + 1, AXIS_NAME[req.axis], req.flag ? 1 : 0);
+            return;
+        }
+
+        case CAL_ROPE_SCALE: {
+            if (!(req.value > 0.0f && req.value < 10.0f)) { serialLine("$ACK,CAL6,ERR,RANGE"); return; }
+            _rope.scale = req.value;
+            saveRope();
+            serialLine("$ACK,CAL6,ROPE_SAVED,SCALE:%.6f,INV:%u", _rope.scale, _rope.sign < 0 ? 1 : 0);
+            return;
+        }
+
+        default:
+            return;
+    }
+}
+
+// ======================== HARDWARE-I2C BUS TASK ========================
+
+void sensorTask_hwBus(void* pvParameters) {
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    const TickType_t period = pdMS_TO_TICKS(SENSOR_PERIOD_MS);
+    uint32_t cycle = 0;
+
+    for (;;) {
+        const uint32_t t0 = micros();
+
+        // IMU zeroing touches bus 0, so it runs here
+        if (_reqImuCalibration) runImuCalibration();
+
+        // Swing (bus 0) and boom (bus 1) encoders: raw angle only
+        for (uint8_t i = 0; i < 2; i++) {
+            uint16_t raw;
+            if (_enc[i] && _enc[i]->readRaw(&raw)) {
+                const uint32_t ms = millis();
+                taskENTER_CRITICAL(&_hwMux);
+                _hw.raw[i]   = raw;
+                _hw.rawMs[i] = ms;
+                _hw.seq[i]++;
+                taskEXIT_CRITICAL(&_hwMux);
+            }
+        }
+
+        // Magnet health: one of the two every 20 cycles
+        if (cycle % 20 == 0) {
+            const uint8_t m = (cycle / 20) % 2;
+            AS5600MagnetStatus s;
+            if (_enc[m] && _enc[m]->readMagnetStatus(&s)) {
+                taskENTER_CRITICAL(&_hwMux);
+                _hw.mag[m]    = s;
+                _hw.magNew[m] = true;
+                taskEXIT_CRITICAL(&_hwMux);
+            }
+        }
+        cycle++;
+
+        // MPU6050 on the boom (complementary filter inside the driver)
+        if (_imu) _imu->update();
+        const bool  imuOK    = _imu && _imu->isConnected();
+        const float mpuRoll  = imuOK ? _imu->getRoll()  : 0.0f;
+        const float mpuPitch = imuOK ? _imu->getPitch() : 0.0f;
+        const float boomBase = (_boomSource == 1) ? mpuPitch : mpuRoll;
+        const float tiltBase = (_tiltSource == 1) ? mpuPitch : mpuRoll;
+        const float imuBoom  = (boomBase - _boomAngleOffset) * (_boomInvert ? -1.0f : 1.0f);
+        const float imuTilt  = (tiltBase - _tiltAngleOffset) * (_tiltInvert ? -1.0f : 1.0f);
+
+        const float workMs = (micros() - t0) / 1000.0f;
+        taskENTER_CRITICAL(&_hwMux);
+        _hw.imuBoom = imuBoom;
+        _hw.imuTilt = imuTilt;
+        _hw.imuOK   = imuOK;
+        if (workMs > _hw.workMaxMs) _hw.workMaxMs = workMs;
+        taskEXIT_CRITICAL(&_hwMux);
+
+        vTaskDelayUntil(&lastWakeTime, period);
+    }
+}
+
+// ======================== TASK ========================
+
 void sensorTask(void* pvParameters) {
     TickType_t lastWakeTime = xTaskGetTickCount();
     const TickType_t period = pdMS_TO_TICKS(SENSOR_PERIOD_MS);
+    uint32_t prevStartUs = micros();
+    uint32_t cycle       = 0;
 
     for (;;) {
-        // Process pending IMU calibration strictly on Core 1
-        // This prevents I2C bus collision with CommandTask on Core 0
-        if (_reqImuCalibration) {
-            _reqImuCalibration = false;
-            Serial.println("$ACK,DBG,Executing IMU Cal on Core 1...");
-            if (_imu && _imu->isConnected()) {
-                _imu->calibrateGyro(100);
-                Wire.setClock(100000);
-            }
-            _boomSource = _reqBoomSrc;
-            _tiltSource = _reqTiltSrc;
-            _boomInvert = _reqBoomInv;
-            _tiltInvert = _reqTiltInv;
-            sensorTask_zeroIMU();
+        const uint32_t startUs = micros();
+        const float periodMs = (startUs - prevStartUs) / 1000.0f;
+        prevStartUs = startUs;
 
-            Serial.print("$ACK,DBG,IMU Zeroed! b_off:");
-            Serial.print(_boomAngleOffset);
-            Serial.print(" t_off:");
-            Serial.print(_tiltAngleOffset);
-            Serial.print(" b_src:");
-            Serial.print(_boomSource);
-            Serial.print(" t_src:");
-            Serial.print(_tiltSource);
-            Serial.print(" b_inv:");
-            Serial.print(_boomInvert);
-            Serial.print(" t_inv:");
-            Serial.println(_tiltInvert);
+        uint32_t st = startUs;
+        stageEnd(STAGE_IMUCAL, st);
+
+        // ---- Snapshot of the hardware-I2C task's latest readings ----
+        static uint32_t seenSeq[2] = {0, 0};
+        HwBusShared hw;
+        taskENTER_CRITICAL(&_hwMux);
+        hw = _hw;
+        _hw.magNew[0] = _hw.magNew[1] = false;
+        taskEXIT_CRITICAL(&_hwMux);
+
+        // ---- Encoders: swing / boom from the bus task, telescope read here ----
+        const uint32_t nowMs = millis();
+        for (uint8_t i = 0; i < 2; i++) {
+            if (hw.seq[i] != seenSeq[i]) {
+                seenSeq[i] = hw.seq[i];
+                _axis[i].update(hw.raw[i], hw.rawMs[i]);
+            }
+        }
+        {
+            uint16_t raw;
+            if (_enc[ENC_TELE] && _enc[ENC_TELE]->readRaw(&raw)) _axis[ENC_TELE].update(raw, nowMs);
+        }
+        if (_winchEnc) _winchEnc->poll();
+
+        stageEnd(STAGE_ENC, st);
+
+        // ---- Deferred position restore (once per axis, after its first sample) ----
+        for (uint8_t i = 0; i < ENC_COUNT; i++) {
+            if (_pendingRestore[i].pending && _axis[i].hasSample()) {
+                _axis[i].restore(_pendingRestore[i].ref, _pendingRestore[i].counts, _pendingRestore[i].raw);
+                _prevValue[i] = _lastSavedValue[i] = _axis[i].value();
+                _stableMs[i]  = nowMs;
+                _pendingRestore[i].pending = false;
+            }
         }
 
-        // ---- Read all sensors ----
+        // ---- Idle-save: persist linear positions when stable for 1 s ----
+        for (uint8_t i = 0; i <= ENC_COUNT; i++) {
+            // Never save before the axis has a real sample and its saved position
+            // has been restored: that would overwrite the good value with a default.
+            if (i < ENC_COUNT && (!_axis[i].hasSample() || _pendingRestore[i].pending)) continue;
+            const float val = (i < ENC_COUNT) ? _axis[i].value() : ropeValue();
+            if (fabsf(val - _prevValue[i]) > 0.5f) {
+                _stableMs[i] = nowMs;       // still moving
+                _prevValue[i] = val;
+            } else if (nowMs - _stableMs[i] > 1000
+                       && fabsf(val - _lastSavedValue[i]) > 0.5f) {
+                savePosition(i);
+                _lastSavedValue[i] = val;
+            }
+        }
 
-        // AS5600 encoders (angles in degrees)
-        float swing = _swingEnc ? _swingEnc->readAngle() : 0.0f;
-        float tele  = _teleEnc  ? _teleEnc->readContinuousAngle() : 0.0f;
+        stageEnd(STAGE_SAVE, st);
 
-        // MPU6050 IMU on the boom (updates internal complementary filter)
-        if (_imu) _imu->update();
+        // Magnet health of the telescope encoder (~1.7x per second); swing/boom come from the bus task
+        AS5600MagnetStatus teleMag;
+        const bool teleMagRead = (cycle % 60 == 0) && _enc[ENC_TELE] && _enc[ENC_TELE]->readMagnetStatus(&teleMag);
+        cycle++;
 
-        float mpuRoll  = _imu ? _imu->getRoll()  : 0.0f;
-        float mpuPitch = _imu ? _imu->getPitch() : 0.0f;
+        stageEnd(STAGE_MAG, st);
 
-        // Independent axis sources for boom and tilt
-        float boomBase = (_boomSource == 1) ? mpuPitch : mpuRoll;
-        float tiltBase = (_tiltSource == 1) ? mpuPitch : mpuRoll;
+        // Calibration requests run after the encoders have a fresh sample
+        CalRequest req;
+        while (_calQueue && xQueueReceive(_calQueue, &req, 0) == pdTRUE) runCal(req);
 
-        // Calibrated zero offset subtraction and inversion
-        float rawBoom = (boomBase - _boomAngleOffset) * (_boomInvert ? -1.0f : 1.0f);
-        float rawTilt = (tiltBase - _tiltAngleOffset) * (_tiltInvert ? -1.0f : 1.0f);
+        stageEnd(STAGE_CAL, st);
 
-        float boom = (_imu && _imu->isConnected())
-            ? rawBoom
-            : (_boomEnc ? _boomEnc->readAngle() : 0.0f);
+        // ---- IMU angles from the bus task ----
+        const bool  imuOK   = hw.imuOK;
+        const float imuBoom = hw.imuBoom;
+        const float imuTilt = hw.imuTilt;
 
-        // HX711 load cell (non-blocking — returns cached if not ready)
-        float weight = _loadCell ? _loadCell->getWeight() : 0.0f;
+        // Boom angle: IMU by default. The encoder is only used when
+        // BOOM_ANGLE_FROM_ENCODER is enabled (see config.h: leadscrew is non-linear).
+        const bool boomEncOK = BOOM_ANGLE_FROM_ENCODER && _boomCalibrated && _enc[ENC_BOOM] &&
+                               _enc[ENC_BOOM]->isConnected() && _axis[ENC_BOOM].hasSample();
+        const float boom = boomEncOK ? _axis[ENC_BOOM].value()
+                         : imuOK     ? imuBoom
+                         :             _axis[ENC_BOOM].value();
 
-        // FSR outrigger sensors (raw ADC)
+        stageEnd(STAGE_IMU, st);
+
+        // ---- HX711 load cell (non-blocking: one conversion at most) ----
+        const float weight = _loadCell ? _loadCell->getWeight() : 0.0f;
+        if (_tarePending && _loadCell) {
+            if (_loadCell->takeTareDone()) {
+                _tarePending = false;
+                // Save the new tare offset to NVS so it survives reboots
+                Preferences tp;
+                tp.begin("sli_hx", false);
+                tp.putLong("offset", _loadCell->getOffset());
+                tp.end();
+                serialLine("$ACK,CAL0,TARE_DONE");
+            } else if (millis() - _tareStartMs > 3000) {
+                _tarePending = false;
+                serialLine("$ACK,CAL0,ERR,TIMEOUT");
+            }
+        }
+
+        stageEnd(STAGE_HX, st);
+
+        // ---- FSR outrigger sensors (raw ADC) ----
         uint16_t fsrVals[4] = {0, 0, 0, 0};
         if (_fsr) _fsr->readAll(fsrVals);
 
-        // N20 winch encoder (rope length)
-        float ropeLen = _winchEnc ? _winchEnc->getRopeLengthMM() : 0.0f;
+        // ---- N20 winch encoder (rope length) ----
+        const float ropeLen = ropeValue();
 
-        // ---- Convert telescope angle to linear extension ----
-        // Full AS5600 rotation (360°) = _teleScale mm (calibrated with direction inversion)
-        float rawExtMM = (tele / 360.0f) * _teleScale;
-        float extensionMM = _teleInvert ? -rawExtMM : rawExtMM;
+        const float workMs = (micros() - startUs) / 1000.0f;
 
         // ---- Write to shared struct under mutex ----
         if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-            sensorData.swingAngle   = swing;
+            sensorData.swingAngle   = _axis[ENC_SWING].value();
             sensorData.boomAngle    = boom;
-            sensorData.teleAngle    = tele;
-            sensorData.extensionMM  = extensionMM;
+            sensorData.teleAngle    = (float)_axis[ENC_TELE].countsFromReference() * 360.0f / EncoderAxis::COUNTS_PER_REV;
+            sensorData.extensionMM  = _axis[ENC_TELE].value();
             sensorData.ropeLengthMM = ropeLen;
 
-            sensorData.loadCellRaw  = (float)(_loadCell ? _loadCell->getLastRaw() : 0);
-            sensorData.actualLoadKg = weight;  // Phase 3: will add angle compensation
+            sensorData.loadCellRaw  = weight;   // kg, uncorrected
+            sensorData.actualLoadKg = weight;   // Phase 3: will add angle compensation
 
-            sensorData.imuRoll  = boom;     // Calibrated Boom elevation angle
-            sensorData.imuPitch = rawTilt;  // Calibrated lateral chassis tilt angle
+            sensorData.imuRoll  = imuBoom;      // IMU's view of the boom angle (cross-check)
+            sensorData.imuPitch = imuTilt;      // sideways lean
 
             sensorData.fsr[0] = fsrVals[0];
             sensorData.fsr[1] = fsrVals[1];
@@ -212,25 +612,60 @@ void sensorTask(void* pvParameters) {
             sensorData.safeLoadLimit = 5.0f;   // Default 5kg crane limit
 
             // Load sanity check: on a 5kg crane, anything >10kg is uncalibrated raw data or overload error
-            bool loadValid = (weight >= -0.5f && weight <= MAX_VALID_LOAD_KG);
+            const bool loadValid = (weight >= -0.5f && weight <= MAX_VALID_LOAD_KG);
             if (loadValid) {
                 sensorData.loadPercent = (sensorData.safeLoadLimit > 0)
                     ? (sensorData.actualLoadKg / sensorData.safeLoadLimit) * 100.0f
                     : 0.0f;
-                sensorData.alarmLevel = (sensorData.loadPercent >= 100.0f) ? 2 : ((sensorData.loadPercent >= 85.0f) ? 1 : 0);
+                sensorData.alarmLevel = (sensorData.loadPercent >= ALARM_CRITICAL_PERCENT) ? 2
+                                      : (sensorData.loadPercent >= ALARM_WARN_PERCENT)     ? 1 : 0;
             } else {
                 sensorData.loadPercent = 999.0f;  // Sentinel error value
-                sensorData.alarmLevel  = 2;       // Warning
+                sensorData.alarmLevel  = 2;
             }
 
-            // System health check
+            // System health check (cached flags only: no bus traffic here)
             sensorData.sensorsOK = (
-                (_swingEnc ? _swingEnc->isConnected() : true) &&
-                (_boomEnc  ? _boomEnc->isConnected()  : true) &&
-                (_teleEnc  ? _teleEnc->isConnected()  : true) &&
-                (_imu      ? _imu->isConnected()      : true) &&
-                (_loadCell ? _loadCell->isConnected()  : true)
+                (_enc[ENC_SWING] ? _enc[ENC_SWING]->isConnected() : true) &&
+                (_enc[ENC_BOOM]  ? _enc[ENC_BOOM]->isConnected()  : true) &&
+                (_enc[ENC_TELE]  ? _enc[ENC_TELE]->isConnected()  : true) &&
+                (_imu            ? _imu->isConnected()            : true) &&
+                (_loadCell       ? _loadCell->isConnected()       : true)
             );
+
+            // Diagnostics for DBG
+            for (uint8_t i = 0; i < ENC_COUNT; i++) {
+                EncoderDiag& d = _diag.enc[i];
+                d.connected = _enc[i] ? _enc[i]->isConnected() : false;
+                d.reads     = _enc[i] ? _enc[i]->readCount() : 0;
+                d.fails     = _enc[i] ? _enc[i]->failCount() : 0;
+                d.rejected  = _axis[i].rejected();
+                d.resyncs   = _axis[i].resyncs();
+                d.inverted  = _axis[i].inverted();
+                d.reference = _axis[i].reference();
+            }
+            if (teleMagRead)  _diag.enc[ENC_TELE].magnet  = teleMag;
+            if (hw.magNew[0]) _diag.enc[ENC_SWING].magnet = hw.mag[0];
+            if (hw.magNew[1]) _diag.enc[ENC_BOOM].magnet  = hw.mag[1];
+            _diag.teleScale       = _axis[ENC_TELE].unitsPerRev();
+            _diag.ropeCounts      = _rope.sign * ropeRawCounts();
+            _diag.ropeScale       = _rope.scale;
+            _diag.ropeInverted    = _rope.sign < 0;
+            _diag.boomCalibrated  = _boomCalibrated;
+            _diag.boomFromEncoder = boomEncOK;
+            _diag.hx711Raw        = _loadCell ? _loadCell->getLastRaw() : 0;
+            _loopSumMs += workMs;
+            if (++_loopCount >= 100) {
+                _diag.loopAvgMs = _loopSumMs / _loopCount;
+                _loopSumMs = 0.0f;
+                _loopCount = 0;
+            }
+            if (workMs > _diag.loopMaxMs)     _diag.loopMaxMs   = workMs;
+            if (periodMs > _diag.periodMaxMs) _diag.periodMaxMs = periodMs;
+            if (hw.workMaxMs > _stageMax[STAGE_IMU]) _stageMax[STAGE_IMU] = hw.workMaxMs;   // "hwbus" in DBG
+            for (int k = 0; k < STAGE_COUNT; k++) _diag.stageMaxMs[k] = _stageMax[k];
+            _diag.imuReconnects = _imu ? _imu->reconnects() : 0;
+            _diag.imuRejected   = _imu ? _imu->rejectedSamples() : 0;
 
             xSemaphoreGive(sensorMutex);
         }

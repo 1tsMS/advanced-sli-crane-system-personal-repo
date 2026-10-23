@@ -11,7 +11,9 @@ from fastapi.responses import FileResponse
 
 from ..api.models import (
     CommandRequest, ConnectionRequest, LoadChartUpload,
-    StatusResponse, ApiResponse, ImuCalibrateRequest, TeleCalibrateRequest
+    StatusResponse, ApiResponse, ImuCalibrateRequest, TeleCalibrateRequest,
+    RecordingState, EncoderCalibrateRequest, RopeCalibrateRequest,
+    LoadCalibrateRequest, AxisScaleRequest,
 )
 from ..api.ws_endpoint import ws_manager
 
@@ -46,7 +48,12 @@ async def get_status():
         baudRate=_serial.baud_rate if _serial else None,
         rxRate=round(_serial.rx_rate, 1) if _serial else 0.0,
         backendOK=True,
+        recording=_recording_state(),
     )
+
+
+def _recording_state() -> RecordingState:
+    return RecordingState(**_session_logger.state()) if _session_logger else RecordingState()
 
 
 @router.get("/ports")
@@ -65,10 +72,7 @@ async def connect(req: ConnectionRequest):
 
     success = await _serial.connect(req.port, req.baudRate)
     if success:
-        # Start a new CSV logging session
-        if _session_logger:
-            path = _session_logger.start_session()
-            logger.info(f"Session log: {path}")
+        # Recording is NOT started here: it is off until the REC button is pressed
         return ApiResponse(ok=True, message=f"Connected to {req.port}")
     else:
         raise HTTPException(400, f"Failed to connect to {req.port}")
@@ -85,6 +89,34 @@ async def disconnect():
 
     await _serial.disconnect()
     return ApiResponse(ok=True, message="Disconnected")
+
+
+# ------------------------------------------------------------------ #
+# Recording (CSV session log) — off by default
+# ------------------------------------------------------------------ #
+
+@router.get("/recording", response_model=RecordingState)
+async def get_recording():
+    return _recording_state()
+
+
+@router.post("/recording/start", response_model=RecordingState)
+async def start_recording():
+    """Start writing telemetry to a new CSV (needs a live ESP32 link)."""
+    if not _session_logger:
+        raise HTTPException(500, "Session logger not initialized")
+    if not (_serial and _serial.is_connected):
+        raise HTTPException(409, "Connect to the ESP32 before recording")
+    _session_logger.start_session()
+    return _recording_state()
+
+
+@router.post("/recording/stop", response_model=RecordingState)
+async def stop_recording():
+    """Close the current CSV (no-op if not recording)."""
+    if _session_logger:
+        _session_logger.end_session()
+    return _recording_state()
 
 
 # ------------------------------------------------------------------ #
@@ -175,6 +207,108 @@ async def calibrate_telescope(req: Optional[TeleCalibrateRequest] = None):
     return ApiResponse(ok=ok, message=msg)
 
 
+_ENCODER_AXES = {"swing": 1, "boom": 2, "tele": 3, "rope": 4}
+
+
+@router.post("/calibrate/encoder", response_model=ApiResponse)
+async def calibrate_encoder(req: EncoderCalibrateRequest):
+    """Calibrate one AS5600 axis on the ESP32 (stored in its flash).
+    - invert -> CAL5 A<n> I<0|1>  (direction, mirrored around the zero)
+    - value  -> CAL4 A<n> V<value> ("the axis is at <value> right now":
+                degrees for swing/boom, mm for the telescope)
+    Direction is sent first so the reference is set in the final direction.
+    """
+    if not _command_router:
+        raise HTTPException(500, "Command router not initialized")
+    axis = _ENCODER_AXES.get(req.axis.lower())
+    if axis is None:
+        raise HTTPException(400, f"Unknown axis '{req.axis}' (use swing, boom, tele or rope)")
+    if req.value is None and req.invert is None:
+        raise HTTPException(400, "Give a value, an invert flag, or both")
+
+    sent = []
+    if req.invert is not None:
+        cmd = f"CAL5 A{axis} I{1 if req.invert else 0}"
+        ok, msg = _command_router.send(cmd)
+        if not ok:
+            raise HTTPException(400, msg)
+        sent.append(cmd)
+    if req.value is not None:
+        cmd = f"CAL4 A{axis} V{req.value:.3f}"
+        ok, msg = _command_router.send(cmd)
+        if not ok:
+            raise HTTPException(400, msg)
+        sent.append(cmd)
+    return ApiResponse(ok=True, message="Sent " + " + ".join(sent))
+
+
+@router.post("/calibrate/load", response_model=ApiResponse)
+async def calibrate_load(req: LoadCalibrateRequest):
+    """Load cell multi-weight calibration (CAL7). The ESP32 averages ~2 s of
+    readings per weight, refits counts-per-kg over all points and saves it;
+    the result arrives as a $ACK,CAL7 line."""
+    if not _command_router:
+        raise HTTPException(500, "Command router not initialized")
+    action = req.action.lower()
+    if action == "point":
+        if req.weight is None or not (0 < req.weight <= 10):
+            raise HTTPException(400, "Weight must be between 0 and 10 kg")
+        cmd = f"CAL7 W{req.weight:.4f}"
+    elif action == "clear":
+        cmd = "CAL7 CLEAR"
+    elif action == "scale":
+        if req.scale is None or req.scale == 0:
+            raise HTTPException(400, "Scale must be non-zero")
+        cmd = f"CAL7 S{req.scale:.2f}"
+    else:
+        raise HTTPException(400, "action must be point, clear or scale")
+    ok, msg = _command_router.send(cmd)
+    if not ok:
+        raise HTTPException(400, msg)
+    return ApiResponse(ok=True, message=f"Sent {cmd}")
+
+
+@router.post("/calibrate/axis-scale", response_model=ApiResponse)
+async def calibrate_axis_scale(req: AxisScaleRequest):
+    """Encoder ratio (CAL8): degrees (swing/boom) or mm (telescope) per encoder revolution."""
+    if not _command_router:
+        raise HTTPException(500, "Command router not initialized")
+    axis = {"swing": 1, "boom": 2, "tele": 3}.get(req.axis.lower())
+    if axis is None:
+        raise HTTPException(400, "axis must be swing, boom or tele")
+    if not req.scale > 0:
+        raise HTTPException(400, "Scale must be greater than 0")
+    cmd = f"CAL8 A{axis} S{req.scale:.4f}"
+    if req.invert is not None:
+        cmd += f" I{1 if req.invert else 0}"
+    ok, msg = _command_router.send(cmd)
+    if not ok:
+        raise HTTPException(400, msg)
+    return ApiResponse(ok=True, message=f"Sent {cmd}")
+
+
+@router.post("/calibrate/rope", response_model=ApiResponse)
+async def calibrate_rope(req: RopeCalibrateRequest):
+    """Rope (winch encoder) scale in mm per N20 count -> CAL6, and optionally direction -> CAL5 A4."""
+    if not _command_router:
+        raise HTTPException(500, "Command router not initialized")
+    if not (0 < req.scale < 10):
+        raise HTTPException(400, "Scale must be between 0 and 10 mm per count")
+    sent = []
+    if req.invert is not None:
+        cmd = f"CAL5 A4 I{1 if req.invert else 0}"
+        ok, msg = _command_router.send(cmd)
+        if not ok:
+            raise HTTPException(400, msg)
+        sent.append(cmd)
+    cmd = f"CAL6 S{req.scale:.6f}"
+    ok, msg = _command_router.send(cmd)
+    if not ok:
+        raise HTTPException(400, msg)
+    sent.append(cmd)
+    return ApiResponse(ok=True, message="Sent " + " + ".join(sent))
+
+
 # ------------------------------------------------------------------ #
 # Debug
 # ------------------------------------------------------------------ #
@@ -235,9 +369,8 @@ async def list_logs():
 
 @router.get("/logs/{filename}")
 async def download_log(filename: str):
-    """Download a specific session log CSV."""
-    from ..config.settings import LOG_DIR
-    file_path = LOG_DIR / filename
-    if not file_path.exists() or not file_path.is_file():
+    """Download a specific session log CSV (only files inside the log folder)."""
+    file_path = _session_logger.resolve_log(filename) if _session_logger else None
+    if file_path is None:
         raise HTTPException(404, f"Log file '{filename}' not found")
-    return FileResponse(str(file_path), media_type="text/csv", filename=filename)
+    return FileResponse(str(file_path), media_type="text/csv", filename=file_path.name)

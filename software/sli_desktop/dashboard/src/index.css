@@ -284,6 +284,80 @@ button {
   transform: translateY(1px) scale(0.98);
 }
 
+/* REC toggle (CSV recording). Neutral when idle so it never reads as the E-stop. */
+.rec-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+/* Header controls must never wrap or squash: the E-stop label stays one line */
+.header-title, .estop-btn, .rec-btn, .alarm-pill {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.header-stat { white-space: nowrap; min-width: 0; }
+.rec-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  background: transparent;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease, transform 0.1s ease;
+}
+.rec-btn:hover:not(:disabled) {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+.rec-btn:active:not(:disabled) { transform: scale(0.97); }
+.rec-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.rec-btn.on {
+  border-color: rgba(255, 59, 59, 0.5);
+  background: rgba(255, 59, 59, 0.08);
+  color: var(--text-primary);
+}
+.rec-btn.on .rec-dot {
+  background: var(--red);
+  animation: rec-pulse 1.4s ease-in-out infinite;
+}
+.rec-time {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--red);
+  min-width: 38px;
+  text-align: left;
+}
+.rec-err {
+  font-size: 11px;
+  color: var(--amber);
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec-btn.on .rec-dot { animation: none; }
+}
+
 .alarm-pill {
   display: flex;
   align-items: center;
@@ -1013,6 +1087,94 @@ button {
   overflow: hidden;
   min-height: 0;
 }
+
+/* Left column holds two stacked cards */
+.debug-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: hidden;
+}
+.debug-col > .debug-card { flex: 1 1 0; min-height: 0; }
+.debug-col > .debug-card-status { flex: 0 1 auto; max-height: 45%; }
+
+/* ---- Encoders (AS5600) panel ---- */
+.enc-refresh {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font-size: 10px;
+}
+.enc-body { display: flex; flex-direction: column; gap: 8px; }
+.enc-empty { font-size: 11px; color: var(--text-muted); }
+.enc-row {
+  padding: 8px 10px;
+  background: rgba(18, 22, 32, 0.7);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.enc-row-top { display: flex; align-items: center; gap: 8px; }
+.enc-name { font-size: 12px; font-weight: 700; color: var(--text-primary); }
+.enc-live {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--cyan);
+  font-variant-numeric: tabular-nums;
+}
+.enc-unit { font-size: 10px; color: var(--text-muted); margin-left: 2px; font-weight: 500; }
+.enc-diag { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.enc-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.enc-tag.ok   { color: var(--green); border-color: rgba(0, 214, 143, 0.35); background: var(--green-dim); }
+.enc-tag.warn { color: var(--amber); border-color: rgba(245, 166, 35, 0.4); background: var(--amber-dim); }
+.enc-tag.bad  { color: var(--red);   border-color: rgba(255, 59, 59, 0.4);  background: var(--red-dim); }
+.enc-tag.dim  { color: var(--text-muted); }
+.enc-agc {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+.enc-agc-track {
+  width: 56px;
+  height: 5px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.enc-agc-fill { display: block; height: 100%; background: var(--cyan); }
+.enc-cal { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.enc-cal-label { font-size: 11px; color: var(--text-muted); }
+.enc-input { width: 72px; }
+.enc-btn { padding: 4px 10px; font-size: 10px; }
+.enc-inv { margin-left: auto; }
+
+.tele-k {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.tele-points td, .tele-points th { font-family: var(--font-mono); font-size: 11px; padding: 3px 6px; }
 
 .debug-card {
   background: var(--bg-card);

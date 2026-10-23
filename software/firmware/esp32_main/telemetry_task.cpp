@@ -23,8 +23,9 @@ void telemetryTask(void* pvParameters) {
     TickType_t lastWakeTime = xTaskGetTickCount();
 
     for (;;) {
-        // Snapshot sensor data under mutex
-        SensorData snapshot;
+        // Snapshot sensor data under mutex (static: if the mutex is busy the
+        // previous snapshot is resent instead of uninitialised stack memory)
+        static SensorData snapshot = {};
         if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
             snapshot = sensorData;  // Struct copy
             xSemaphoreGive(sensorMutex);
